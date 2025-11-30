@@ -15,7 +15,7 @@ from agents.assessment_agent import create_assessment_agent, run_assessment
 
 # Import Custom Tool Functions (used to be imported by the agent files)
 from tools.diagram_processor import process_architecture_diagram
-from tools.threat_intel_api import search_vulnerabilities
+from tools.threat_intel_api import search_vulnerabilities, search_vulnerabilities_json
 
 # Import Data Models for Validation
 from tools.models import ArchitectureSchema, ThreatSearchResults, FinalReport
@@ -26,94 +26,86 @@ def main(image_path: str):
     Initializes and orchestrates the Threat Modeling Multi-Agent System.
     """
     
-    print("🤖 Initializing Threat Modeling Agents...")
-    
-    # --- 1. Initialize Agents with Tool Isolation (CIRCULAR DEPENDENCY FIX) ---
-    
-    # Define the tools the Planner Agent needs access to
-    planner_tool_functions = [
-        process_architecture_diagram,
-        search_vulnerabilities,
-    ]
-    
-    # Pass the tool functions list to the creation method
-    planner_agent = create_planner_agent(
-        tools=planner_tool_functions,
-        model_name='gemini-2.5-flash'
-    )
-    assessment_agent = create_assessment_agent(model_name='gemini-2.5-flash')
-    
+    print("🤖 Initializing Multi-Agent Threat Modeling Pipeline...")
     print("-" * 50)
     print(f"\n▶️ Starting Threat Modeling Workflow for image: {image_path}")
-    
-    # --- 2. Workflow Execution ---
-    
-    # 2A. Architecture Extraction (Calls the DiagramProcessorTool)
-    print("\n✅ STEP 1: Calling Diagram Processor Tool (Vision)...")
-    
-    # We retrieve the tool function from the Planner Agent's tool list for execution
-    # This is a simulation of the planner's first action.
-    diagram_tool_func = planner_agent.tools[0].func
-    architecture_data_json = diagram_tool_func(None, image_path)
-    
+
+    # 1. Vision Agent: Extract raw component labels from diagram
+    from tools.diagram_processor import process_architecture_diagram
+    diagram_data_json = process_architecture_diagram(None, image_path)
     try:
-        # Validate and convert the JSON output to the Pydantic model
-        architecture_data = ArchitectureSchema.model_validate_json(architecture_data_json)
+        architecture_data = ArchitectureSchema.model_validate_json(diagram_data_json)
         print("   -> Architecture data extracted and validated.")
         print(f"   -> Components identified: {architecture_data.components}")
-        
-    except (json.JSONDecodeError, KeyError, Exception) as e:
+    except Exception as e:
         print(f"❌ Error during diagram processing/validation: {e}")
         return
 
-    # 2B. Threat Research (Calls the CVEResearchTool)
-    print("\n✅ STEP 2: Calling Threat Research Tool (NVD/CISA KEV)...")
-    
-    research_tool_func = planner_agent.tools[1].func
-    # Use the components found in the previous step
-    raw_threats_json = research_tool_func(None, architecture_data.components)
-    
-    try:
-        # Validate and convert the JSON output
-        raw_threats = ThreatSearchResults.model_validate_json(raw_threats_json)
-        print(f"   -> Found {len(raw_threats.threats)} raw threats.")
-        
-    except json.JSONDecodeError:
-        print("❌ Error decoding threat search results. API may have failed.")
-        return
+    # 2. Component Understanding Agent: Infer real technologies
+    from agents.component_understanding_agent import ComponentUnderstandingAgent
+    comp_agent = ComponentUnderstandingAgent()
+    inferred_components = comp_agent.infer_components(architecture_data.components)
+    print("   -> Inferred component technologies:")
+    for comp in inferred_components:
+        print(f"      {comp['component_name']}: {comp['inferred_product_categories']} (confidence={comp['confidence']})")
 
-    # 2C. Risk Assessment & Final Report (Executes the Assessment Agent)
-    print("\n✅ STEP 3: Executing Risk Assessment Agent (Contextual Reasoning)...")
-    
-    # The Planner delegates the data to the Assessment Agent via the run_assessment function
-    final_report_json = run_assessment(assessment_agent, architecture_data, raw_threats)
-    
-    try:
-        FinalReport.model_validate_json(final_report_json)
-        print("   -> Assessment complete and report validated.")
-    except Exception as e:
-        print(f"❌ Assessment Agent failed to return valid structured JSON: {e}")
-        print("Raw Assessment Output (for debugging):", final_report_json[:500] + "...")
-        return
-        
-    # 2D. Synthesis (Planner Agent's Final Task)
-    print("\n✅ STEP 4: Planner Agent synthesizes final report...")
-    
-    synthesis_prompt = f"""
-    The full, structured risk assessment has been completed. Synthesize the following 
-    structured JSON report into a professional, narrative-driven Threat Model Summary 
-    for an executive audience. Focus on the CRITICAL and HIGH severity threats first.
-    
-    STRUCTURED REPORT:
-    {final_report_json}
-    """
-    
-    final_narrative_response = planner_agent.generate_content(synthesis_prompt)
-    
+    # 3. Threat Knowledge Agent: Generate generic threats
+    from agents.threat_knowledge_agent import ThreatKnowledgeAgent
+    threat_agent = ThreatKnowledgeAgent()
+    generic_threats = threat_agent.generate_threats(inferred_components)
+    print(f"   -> Generated {len(generic_threats)} generic architectural threats.")
+
+    # 4. CVE Discovery Agent: Query NVD/CISA for relevant product types
+    from agents.cve_discovery_agent import CVEDiscoveryAgent
+    cve_agent = CVEDiscoveryAgent()
+    cve_threats = cve_agent.discover_cves(inferred_components)
+    print(f"   -> Discovered {len(cve_threats)} raw CVEs.")
+
+    # 5. Threat Relevance Agent: Match and filter threats
+    from agents.threat_relevance_agent import ThreatRelevanceAgent
+    relevance_agent = ThreatRelevanceAgent()
+    match_results = relevance_agent.match_relevant_threats(inferred_components, generic_threats, cve_threats)
+    print(f"   -> {len(match_results['relevant_threats'])} relevant architectural threats, {len(match_results['relevant_cves'])} relevant CVEs.")
+
+    # 6. Report Synthesizer Agent: Generate final report
+    from agents.report_synthesizer_agent import ReportSynthesizerAgent
+    report_agent = ReportSynthesizerAgent()
+    final_report = report_agent.synthesize_report(match_results)
+
     print("\n\n" + "=" * 50)
     print("🛡️ FINAL THREAT MODEL REPORT (EXECUTIVE SUMMARY)")
     print("=" * 50)
-    print(final_narrative_response.text)
+    print(final_report["executive_summary"])
+    
+    print("\n" + "-" * 30)
+    print("🌍 High-level Threat Landscape")
+    print("-" * 30)
+    unique_landscape = sorted(list(set(final_report["threat_landscape"])))
+    print(", ".join(unique_landscape))
+
+    print("\n" + "-" * 30)
+    print("🔥 Detailed Threat List")
+    print("-" * 30)
+    
+    # Group generic threats by component type
+    print("\n--- Generic Architectural Threats ---")
+    for item in final_report["detailed_threat_list"]:
+        if "component_type" in item:
+            print(f"\n📌 {item['component_type'].upper()}")
+            for t in item['threats']:
+                print(f"  - {t}")
+                
+    print("\n--- Specific Vulnerabilities (CVEs) ---")
+    for item in final_report["detailed_threat_list"]:
+        if "cve_id" in item:
+            print(f"\n🔴 {item['cve_id']} (Severity: {item['severity']}, Score: {item['score']})")
+            print(f"   Summary: {item['summary']}")
+
+    print("\n" + "-" * 30)
+    print("🛡️ Prioritized Mitigations")
+    print("-" * 30)
+    for mit in final_report["prioritized_mitigations"]:
+        print(f"✅ [{mit['cve_id']}] {mit['mitigation']}")
     print("=" * 50)
 
 
