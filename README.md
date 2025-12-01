@@ -131,12 +131,12 @@ The tool will generate a file named **`threat_report.md`** in the root directory
 
 ## 🧪 Sample Execution & Verification
 
-A sample architecture diagram (`data/test_arch2.png`) and a pre-generated report (`threat_report.md`) are included in the repository for verification purposes.
+A sample architecture diagram (`data/test_arch4.png`) and a pre-generated report (`threat_report.md`) are included in the repository for verification purposes.
 
 To verify the system functionality, run the following command:
 
 ```bash
-python main.py --image data/test_arch2.png
+python main.py --image data/test_arch4.png
 ```
 
 **Note:** Running this command will analyze the sample image and **overwrite** the existing `threat_report.md` with a newly generated threat model based on the current analysis.
@@ -191,6 +191,7 @@ threat-modeling-agent/
 │   └── threat_intel_api.py     # NVD/CISA integration
 ├── main.py                     # Entry point and orchestrator
 ├── requirements.txt            # Python dependencies
+├── threat_report.md            # Generated Threat Model Report
 └── README.md                   # Documentation
 ```
 
@@ -199,6 +200,8 @@ threat-modeling-agent/
 ## 🔮 Future Roadmap
 
 *   [ ] **IDE Extension**: Integrate directly into VS Code to analyze diagrams as you draw them.
+*   [ ] **Expanded Input Support**: Support for additional formats beyond JSON and Images (e.g., Draw.io XML, Visio).
+*   [ ] **GUI Version**: Develop a user-friendly Graphical User Interface (GUI) for easier interaction.
 *   [ ] **Infrastructure as Code (IaC) Scanning**: Support parsing Terraform or CloudFormation files as input.
 *   [ ] **Interactive Triage**: Allow users to accept/reject risks via a CLI or Web UI.
 *   [ ] **Jira Integration**: Automatically create tickets for identified High/Critical risks.
