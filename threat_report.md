@@ -1,36 +1,42 @@
-# Threat Model Report: Content Management and Automated Deployment Workflow
+# Threat Model Report: Web Portal Architecture
 
 **Date:** 2025-12-01  
-**Project:** Content Management and Automated Deployment Workflow  
-**Assessment Type:** Automated Architecture Risk Assessment
+**Project:** Web Portal Architecture  
+**Architectural Style:** Layered Web Application (Django Backend + Backbone.js Frontend)
 
 ---
 
 ## 1. Architecture Extraction
 
+Based on the provided architecture definition and component analysis.
+
 ### 1.1 Components
-*   Content Author Computer (Workstation)
-*   Developer Computer (Workstation)
-*   Automated Deployment Infrastructure (Server / CI/CD System)
-*   Development (Server Environment)
-*   Staging (Server Environment)
-*   Production (Server Environment)
+*   **Data Layer:** Database 1 (PostgreSQL), Database 2 (PostgreSQL)
+*   **Application Server:** Common Server (Nginx)
+*   **API/Backend:** REST API (Django + Piston App), Backend Model (Django), Backend View (Django), Backend Template (Django), Backend Router (urls.py), I18n (*.po)
+*   **Frontend (Client-Side):** Frontend Router (Backbone.js), Frontend View (Backbone.js), Frontend Model/Collection (Backbone.js), Frontend Event Handler (Backbone.js), Frontend Dependencies (REQUIRE.JS)
 
 ### 1.2 Data Flows
-1.  **Content Author Computer** $\rightarrow$ **Staging** (Protocol: Content Creation / HTTPs)
-2.  **Developer Computer** $\rightarrow$ **Automated Deployment Infrastructure** (Protocol: Source Code Check In / Git / SSH)
-3.  **Automated Deployment Infrastructure** $\rightarrow$ **Development** (Protocol: Publish Code / SCP or Agent)
-4.  **Automated Deployment Infrastructure** $\rightarrow$ **Staging** (Protocol: Publish Code / SCP or Agent)
-5.  **Automated Deployment Infrastructure** $\rightarrow$ **Production** (Protocol: Publish Code / SCP or Agent)
-6.  **Staging** $\rightarrow$ **Production** (Protocol: SiteSync Content / HTTP API)
+*   Database 1 ↔ Backend Model (Django) [TCP/IP]
+*   Database 2 ↔ Common Server [Unspecified DB Protocol]
+*   Common Server ↔ REST API (Django + Piston App) [HTTP/REST]
+*   REST API ↔ Backend Model (Django) [Invocation]
+*   Frontend Router ↔ Backend Router (urls.py) [JSON/HTTP]
+*   Backend Router ↔ REST API / Backend View [Invocation]
+*   Backend View ↔ Backend Template ↔ I18n [Invocation]
+*   Frontend Event Handler ↔ Frontend Model/View [Asynchronous Call]
+*   Frontend Router ↔ Frontend View [Invocation]
 
 ### 1.3 Trust Boundaries
-*Note: Boundaries are inferred based on component roles as they were not explicitly defined in the input structure.*
+*   **Internet Boundary:** Between Client (Frontend) and Common Server.
+*   **Web Portal Django App Container:** Encapsulates API, Backend Logic, and Configuration.
+*   **Web Portal BACKBONE.JS Container:** Client-side execution environment.
+*   **Data Access Layer:** Boundary surrounding Database 1 and Database 2.
+*   **Internal Logic Boundaries:** Business Logic, Flow Logic, Presentation Logic.
 
-1.  **Workstation Boundary:** Separates Developer and Author computers from the corporate/cloud network.
-2.  **CI/CD Perimeter:** Surrounds the Automated Deployment Infrastructure, separating it from general network traffic.
-3.  **Environment Segmentation:** Distinct boundaries separating Development, Staging, and Production environments.
-4.  **Internet Boundary:** Implicit boundary facing the Production environment (assumed public-facing web server).
+**Assumptions:**
+1.  **PostgreSQL Usage:** Based on the CVEs provided in the input, `Database 1` and `Database 2` are assumed to be running PostgreSQL.
+2.  **Nginx Usage:** Based on the components and CVEs, the `Common Server` is identified as Nginx.
 
 ---
 
@@ -38,167 +44,164 @@
 
 | Component | Type | Criticality | Notes |
 | :--- | :--- | :--- | :--- |
-| **Production** | Server Environment | **Critical** | Hosts live customer-facing application and data. Direct target for attackers. |
-| **Automated Deployment Infrastructure** | CI/CD System | **Critical** | Has write access to all environments (Dev, Staging, Prod). Single point of failure for integrity. |
-| **Staging** | Server Environment | **High** | Connected to Production via SiteSync. Often has weaker security than Prod but can influence Prod data. |
-| **Developer Computer** | Workstation | **High** | holds source code and access credentials to the CI/CD pipeline. |
-| **Content Author Computer** | Workstation | **Medium** | Access to CMS content. Compromise leads to defacement or misinformation. |
-| **Development** | Server Environment | **Low** | Sandbox environment. Low business impact if compromised, provided lateral movement is blocked. |
+| **Database 1 & 2** | Database | **Critical** | Stores core business data. Identified as PostgreSQL. Vulnerable to RCE via CVEs. |
+| **REST API (Piston)** | API Service | **Critical** | Main entry point. Uses deprecated framework (Piston) with known serialization risks. |
+| **Common Server** | App Server | **High** | Ingress point (Nginx). Handles routing to DB2 and API. Vulnerable to resolver attacks. |
+| **Backend Model** | App Component | **High** | Enforces business logic and interacts with DB. Vulnerable to Mass Assignment. |
+| **Backend Router** | App Component | **High** | Controls URL routing. Vulnerable to ACL bypass (CVE-2021-44420). |
+| **Frontend Components** | Client-side | **Medium** | Backbone.js logic. Susceptible to XSS and client-side logic bypass. |
+| **I18n (*.po)** | Config/Data | **Low** | Translation files. Potential information disclosure if exposed. |
 
 ---
 
 ## 3. STRIDE Threat Enumeration
 
-| ID | Category | CWE | Description | Preconditions | Impact | Severity | Mitigations |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **T-001** | Tampering | CWE-494 | **Malicious Code Injection:** Attacker compromises Developer Computer and injects malware into git before check-in. | Compromised workstation; No code review enforcement. | Production deployment of backdoors. | **High** | 1. Enforce GPG signing for commits.<br>2. Mandatory Pull Request reviews.<br>3. EDR on workstations. |
-| **T-002** | Spoofing | CWE-287 | **Developer Identity Theft:** Attacker steals SSH keys/tokens to push unauthorized code. | Unencrypted keys on disk; Weak endpoint security. | Unauthorized code injection into pipeline. | **High** | 1. Hardware security keys (YubiKey).<br>2. Enforce MFA for repo access.<br>3. Short-lived tokens. |
-| **T-003** | Info Disclosure | CWE-522 | **CMS Session Hijacking:** Spyware on Author Computer captures session cookies for Staging CMS. | Malware infection; No MFA/Timeouts. | Leak of embargoed content/data. | **Medium** | 1. Rigid session timeouts.<br>2. IP allow-listing.<br>3. Context-aware access control. |
-| **T-004** | Tampering | CWE-74 | **Pipeline Configuration Tampering:** Attacker modifies build scripts (e.g., Jenkinsfile) to exfiltrate secrets or inject backdoors. | Weak CI/CD access controls; Compromised service account. | Complete compromise of all downstream environments. | **Critical** | 1. Version control pipeline definitions.<br>2. Strictly monitor config changes.<br>3. Ephemeral build containers. |
-| **T-005** | Info Disclosure | CWE-532 | **Secret Exposure in Logs:** Build logs expose DB strings/API keys during 'Publish' phase. | Verbose logging; Secrets echoed in scripts. | Direct access to Prod databases/cloud resources. | **High** | 1. Secret masking/redaction.<br>2. Inject as env vars only.<br>3. Use centralized Vault. |
-| **T-006** | Elevation of Privilege | CWE-250 | **Container Escape:** CI/CD runner executes with excessive privileges (e.g., Docker socket), allowing host compromise. | Docker-in-Docker (Privileged); Root execution. | Full control over deployment infrastructure. | **High** | 1. Unprivileged build agents.<br>2. Rootless containers (Podman).<br>3. Block Docker socket mounting. |
-| **T-007** | Denial of Service | CWE-400 | **Build Queue Exhaustion:** Attacker triggers massive builds, exhausting CI resources. | Public webhooks without auth; No rate limiting. | Inability to push hotfixes to Prod. | **Medium** | 1. Rate limit webhooks.<br>2. Resource quotas.<br>3. Auto-scaling agents. |
-| **T-008** | Tampering | CWE-319 | **SiteSync MitM:** Attacker intercepts Staging $\rightarrow$ Prod sync to inject XSS into content. | Unencrypted HTTP; Lack of mTLS. | Visitors attacked via stored XSS on Prod. | **High** | 1. Enforce mTLS for sync.<br>2. Verify content checksums.<br>3. Encrypt data in transit. |
-| **T-009** | Spoofing | CWE-290 | **Fake Staging Environment:** Attacker mimics Staging to overwrite Production content via SiteSync. | Weak auth on sync endpoint; No network segmentation. | Defacement or reputation loss. | **High** | 1. Strict IP allow-listing.<br>2. Strong API Auth (Keys + mTLS).<br>3. Network segmentation. |
-| **T-010** | Tampering | CWE-79 | **Replicated Stored XSS:** Malicious content entered in Staging replicates to Prod and executes. | CMS allows raw HTML; No output encoding. | Compromise of end-user sessions. | **High** | 1. Strict input validation.<br>2. Content Security Policy (CSP).<br>3. HTML Sanitization. |
-| **T-011** | Repudiation | CWE-778 | **Unaccountable Config Changes:** Admin modifies Prod directly; denies causing outage. | Direct SSH/RDP enabled; No centralized logs. | Inability to trace root cause/breach. | **Medium** | 1. Disable direct access (use IaC).<br>2. Immutable audit logs.<br>3. Centralized SIEM. |
-| **T-012** | Tampering | CWE-502 | **Insecure Deserialization:** Vulnerable deployment agent on Development server exploited for RCE. | Vulnerable agent version; Untrusted data streams. | RCE on Development server. | **High** | 1. Patch agents.<br>2. Block serialized network objects.<br>3. Sign artifacts. |
-| **T-013** | Info Disclosure | CWE-209 | **Debug Mode Leakage:** Staging configured with Debug Mode enabled exposes stack traces. | Dev config on Staging; Public access. | Reconnaissance data for attackers. | **Medium** | 1. Disable debug mode.<br>2. Custom error pages.<br>3. VPN-only access. |
-| **T-014** | Elevation of Privilege | CWE-829 | **Supply Chain Attack:** CI/CD pulls compromised 3rd-party dependency (npm/PyPI). | Unrestricted internet access; Using 'latest' tags. | Malicious code running in Prod. | **Critical** | 1. Private artifact proxy/scan.<br>2. Lock dependency versions.<br>3. Software Composition Analysis (SCA). |
-| **T-015** | Denial of Service | CWE-400 | **Bandwidth Saturation:** SiteSync transfers massive files, choking Prod bandwidth. | No QoS; No file size limits. | Production site unresponsiveness. | **Medium** | 1. Throttle sync bandwidth.<br>2. Off-peak scheduling.<br>3. Optimize media. |
+| Threat ID | Category | CWE | Description | Severity | Mitigations |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **T-001** | Tampering | CWE-502 | **Unsafe Deserialization in Django Piston:** Piston supports YAML/Pickle. Attackers can send malicious payloads to the API triggering RCE. | **Critical** | 1. Migrate to Django REST Framework.<br>2. Disable YAML/Pickle serializers.<br>3. Enforce JSON-only inputs. |
+| **T-002** | Spoofing | CWE-352 | **CSRF via Backbone.js Sync:** Backbone interactions may lack CSRF tokens, allowing attackers to force state changes via authenticated users. | **High** | 1. Enforce Django CSRF middleware.<br>2. Append `X-CSRFToken` to Backbone.sync.<br>3. Use SameSite=Strict cookies. |
+| **T-003** | Tampering | CWE-915 | **Mass Assignment in Backend Model:** JSON inputs bound directly to models allow attackers to modify privileged fields (e.g., `is_superuser`). | **High** | 1. Use explicit field whitelisting (Forms/Serializers).<br>2. Avoid `**request.POST` updates.<br>3. Validate input schemas. |
+| **T-004** | Tampering | CWE-79 | **Stored XSS in Frontend View:** Backbone `.html()` rendering of unsanitized user data allows script execution in victim browsers. | **High** | 1. Use `.text()` rendering.<br>2. Context-aware encoding.<br>3. Implement strict CSP. |
+| **T-005** | Info Disclosure | CWE-530 | **Exposure of I18n Files:** Misconfigured Nginx serving `*.po` files reveals internal application logic and strings. | **Low** | 1. Deny access to `*.po`/`*.mo` in Nginx.<br>2. Move source files outside web root. |
+| **T-006** | DoS | CWE-770 | **Resource Exhaustion via Recursion:** Deeply nested object graph requests in Piston consume excessive server CPU/RAM. | **Medium** | 1. Limit serializer depth.<br>2. Enforce pagination.<br>3. Rate limit API endpoints. |
+| **T-007** | Tampering | CWE-494 | **Dependency Injection (Require.js):** Loading scripts from external sources without SRI allows MITM code injection. | **High** | 1. Implement Subresource Integrity (SRI).<br>2. Host critical libs locally.<br>3. Enforce HTTPS. |
+| **T-008** | Info Disclosure | CWE-209 | **Debug Mode Exposure:** If `DEBUG=True`, accessing `/admin` or errors reveals secrets and stack traces. | **High** | 1. Set `DEBUG=False`.<br>2. Restrict `/admin` by IP.<br>3. Prune unused URLs. |
+| **T-009** | Repudiation | CWE-778 | **Missing API Audit Logging:** Lack of persistent logs for state-changing API requests prevents incident tracing. | **Medium** | 1. Log all POST/PUT/DELETE requests.<br>2. Centralize logs.<br>3. Include User IDs in logs. |
+| **T-010** | Tampering | CWE-319 | **Unencrypted Database Traffic:** "Unspecified Protocol" to DB2 allows network sniffing of SQL/Data. | **High** | 1. Enforce TLS for DB connections.<br>2. Segment DB network.<br>3. Strong DB authentication. |
 
 ---
 
 ## 4. Architectural Weaknesses
 
-| ID | Weakness | Description | Impact |
-| :--- | :--- | :--- | :--- |
-| **W-001** | **Lack of Network Segmentation** | Potential connectivity overlap between Dev, Staging, and Prod, or flat access from CI/CD to all. | Lateral movement allows compromise of Prod from Dev or Staging. |
-| **W-002** | **Missing WAF** | No explicit Web Application Firewall protecting Staging or Production. | Increased vulnerability to OWASP Top 10 (SQLi, XSS) on public interfaces. |
-| **W-003** | **Insufficient Artifact Integrity** | No mention of artifact signing/verification between Build and Deploy phases. | Environments may execute tampered or corrupted binaries without detection. |
-| **W-004** | **Implicit Trust in SiteSync** | High-privilege push from Staging to Prod creates a "downstream trust" vulnerability. | If Staging is compromised (lower security), attacker can wipe or corrupt Prod. |
-| **W-005** | **Lack of Secret Management** | No centralized Secrets Manager (Vault/AWS Secrets) visualized; implies static config. | Credential theft via file system access, git history, or config leakage. |
-| **W-006** | **Unclear Author Authorization** | Content Authors push to Staging without clear network restrictions (VPN/ZTNA). | Publicly accessible Staging login increases attack surface for brute force/phishing. |
+1.  **W-001: Use of Deprecated Framework (Django Piston)**
+    *   **Description:** The API relies on Piston, which is unmaintained and lacks modern security controls.
+    *   **Impact:** High exposure to unpatched vulnerabilities (RCE) and lack of standard security features (OAuth2, throttling).
+
+2.  **W-002: Implicit Trust in Client-Side Logic (Backbone.js)**
+    *   **Description:** "Thick Client" architecture where validation may be relied upon in the frontend.
+    *   **Impact:** Business logic bypass (e.g., pricing manipulation) if the backend does not re-validate all inputs.
+
+3.  **W-003: Lack of Explicit API Gateway / WAF**
+    *   **Description:** Direct exposure of the REST API via Nginx without specialized filtering.
+    *   **Impact:** Susceptibility to automated bots, scraping, and DoS attacks.
+
+4.  **W-004: Unspecified Data Encryption**
+    *   **Description:** No explicit mention of TLS/SSL for internal or external flows.
+    *   **Impact:** Critical data exposure (credentials, PII) during transit.
+
+5.  **W-005: Potential Split-Brain Identity Management**
+    *   **Description:** Utilization of two separate databases connected to different upstream components.
+    *   **Impact:** Authorization bypasses caused by state desynchronization between DB1 and DB2.
 
 ---
 
 ## 5. CVE Discovery
 
-*Status: **CVE analysis skipped due to insufficient product detail.***
+*Analysis performed based on identified components: Django, PostgreSQL, and Nginx.*
 
-*Reasoning:* The architecture defines generic components ("Server Environment", "CI/CD System") without specifying vendors or versions (e.g., Jenkins v2.4, Windows Server 2019, WordPress 5.8). Generating CVEs without this data would result in hallucination.
+### 5.1 Django Framework
+*   **CVE-2024-42005 (CVSS 7.3):** SQL Injection via `QuerySet.values()` with JSONField. **High Relevance.**
+*   **CVE-2025-57833 (CVSS 7.1):** SQL Injection via `FilteredRelation`. **High Relevance.**
+*   **CVE-2021-44420 (CVSS 7.3):** Access Control Bypass via trailing newlines. **High Relevance** for API routing.
+*   **CVE-2023-24580 (CVSS 7.5):** DoS via Multipart Request Parser (file uploads). **Medium Relevance.**
+*   **CVE-2024-41990 (CVSS 7.5):** DoS via `urlize` template filter. **Medium Relevance.**
+
+### 5.2 PostgreSQL
+*   **CVE-2023-5869 (CVSS 8.8):** RCE via integer overflow in array modification. **High Relevance** (Authenticated).
+*   **CVE-2021-32027 (CVSS 8.8):** Buffer overflow allowing arbitrary write. **Medium Relevance.**
+
+### 5.3 Nginx
+*   **CVE-2021-23017 (CVSS 7.7):** 1-byte memory overwrite in DNS resolver. **Medium Relevance** (if upstream DNS is used).
+*   **CVE-2022-41741 (CVSS 7.0):** Memory corruption in MP4 module. **Low Relevance** (unless streaming media).
 
 ---
 
 ## 6. Threat ↔ CVE Matrix
 
-*Not applicable (No CVEs identified).*
+| Threat ID | CVE | Relationship |
+| :--- | :--- | :--- |
+| **T-001 (RCE)** | *N/A* | While T-001 is Piston-specific, unpatched **Django CVE-2024-42005** amplifies the RCE risk if Piston uses vulnerable ORM methods. |
+| **T-003 (Injection)** | **CVE-2024-42005** | **Enables:** Mass assignment combined with SQLi in JSONFields makes DB exploitation trivial. |
+| **T-008 (Admin)** | **CVE-2021-44420** | **Enables:** Attacker can bypass Nginx/Django URL restrictions to access Admin/Debug views. |
+| **T-006 (DoS)** | **CVE-2023-24580** | **Related Weakness:** Both target resource exhaustion in the API handling layer. |
+| **T-010 (DB access)**| **CVE-2023-5869** | **Amplifies:** If an attacker sniffs credentials (T-010), they can use this CVE to gain RCE on the DB server. |
 
 ---
 
 ## 7. Attack Path Simulations
 
-### AP-01: Production Compromise via Developer Workstation
-**Impact:** Full System Compromise and RCE on Production.  
-**Likelihood:** High  
+### AP-01: Legacy API Deserialization to RCE
+*   **Step 1:** Attacker maps API via exposed I18n files (**T-005**).
+*   **Step 2:** Attacker sends `application/x-yaml` payload to Piston endpoint (**T-001**).
+*   **Step 3:** Piston deserializes payload, executing Python code on **Common Server/API Container**.
+*   **Step 4:** Attacker reads `settings.py`, extracts DB credentials, and pivots to **Database 1**.
+*   **Impact:** Full System Compromise. **Likelihood:** High.
 
-1.  **Credential Theft:** Attacker compromises Developer Computer via phishing, stealing SSH keys (Ref: **T-002**).
-2.  **Code Injection:** Attacker modifies source code to include a webshell/backdoor and commits to the repo (Ref: **T-001**).
-3.  **Pipeline Abuse:** Automated Deployment Infrastructure trusts the commit, builds the artifact, and deploys it to Production (Ref: **W-003**).
-4.  **Execution:** Attacker accesses the webshell on the live Production site.
-
-### AP-02: Supply Chain to Infrastructure Takeover
-**Impact:** Total compromise of CI/CD and Data Breach of Production DB.  
-**Likelihood:** Medium  
-
-1.  **Package Poisoning:** Attacker publishes a typosquatted package to a public registry (npm/PyPI) (Ref: **T-014**).
-2.  **Ingestion:** CI/CD build script installs the malicious dependency.
-3.  **Container Escape:** Malicious script exploits privileged Docker socket access to break out of the build container (Ref: **T-006**).
-4.  **Credential Scrape:** Attacker accesses host env vars/logs to steal Production DB credentials (Ref: **T-005**).
-5.  **Exfiltration:** Attacker connects directly to Production DB and exfiltrates data.
-
-### AP-03: Mass Client-Side Attack via SiteSync
-**Impact:** Compromise of end-user accounts (Session Hijacking).  
-**Likelihood:** Medium  
-
-1.  **Spyware Infection:** Attacker infects Content Author Computer, capturing Staging CMS session cookies (Ref: **T-003**).
-2.  **XSS Injection:** Attacker logs into Staging and saves a Stored XSS payload in a global footer (Ref: **T-010**).
-3.  **Propagation:** SiteSync process replicates the malicious footer from Staging to Production (Ref: **W-004**).
-4.  **Exploitation:** Valid users visit Production; the XSS payload executes, sending their cookies to the attacker.
+### AP-02: ACL Bypass to Database Takeover
+*   **Step 1:** Attacker requests restricted internal URL with a trailing newline (**CVE-2021-44420**) bypassing upstream Nginx/Django checks.
+*   **Step 2:** Endpoint logic uses `QuerySet.values()`. Attacker injects malicious JSON key (**CVE-2024-42005**) to inject SQL.
+*   **Step 3:** SQL injection modifies Postgres array values, triggering Integer Overflow (**CVE-2023-5869**).
+*   **Step 4:** Buffer overflow executes shellcode on **Database 1**.
+*   **Impact:** Total Database Infrastructure Compromise. **Likelihood:** Medium.
 
 ---
 
 ## 8. Component Security Profiles
 
-### 8.1 Production Environment
-*   **Role:** Serve live application and content to end-users.
+### 8.1 REST API (Django + Piston)
 *   **Risk:** **Critical**
-*   **Top Threats:**
-    *   T-008 (SiteSync MitM)
-    *   T-009 (Spoofing Staging)
-    *   T-010 (Replicated XSS)
-*   **Prioritized Mitigations:**
-    1.  Deploy a Web Application Firewall (WAF).
-    2.  Implement mTLS for the inbound SiteSync connection.
-    3.  Disable direct SSH access; use immutable infrastructure patterns.
+*   **Top Threats:** T-001 (Deserialization RCE), T-003 (Mass Assignment), CVE-2024-42005 (SQLi).
+*   **Mitigations:**
+    1.  **Immediate:** Disable YAML/Pickle serialization support in Piston config.
+    2.  **Short-term:** Patch Django to version > 5.0.8 / 4.2.15.
+    3.  **Long-term:** Replace Piston with Django REST Framework (DRF).
 
-### 8.2 Automated Deployment Infrastructure (CI/CD)
-*   **Role:** Build code and orchestrate deployments to all environments.
-*   **Risk:** **Critical**
-*   **Top Threats:**
-    *   T-004 (Pipeline Configuration Tampering)
-    *   T-006 (Container Escape/Privilege Escalation)
-    *   T-014 (Supply Chain Attacks)
-*   **Prioritized Mitigations:**
-    1.  Isolate build agents in unprivileged, ephemeral containers.
-    2.  Implement dependency scanning (SCA) and artifact signing.
-    3.  Externalize secrets to a Vault; never store in plain text or logs.
-
-### 8.3 Developer Computer
-*   **Role:** Source code creation and version control management.
+### 8.2 Database 1 & 2 (PostgreSQL)
 *   **Risk:** **High**
-*   **Top Threats:**
-    *   T-001 (Code Tampering)
-    *   T-002 (Identity Spoofing)
-*   **Prioritized Mitigations:**
-    1.  Enforce MFA and Hardware Keys (YubiKey) for git operations.
-    2.  Mandatory Code Review gates (no direct pushes to main).
-    3.  Endpoint Detection and Response (EDR) installation.
+*   **Top Threats:** CVE-2023-5869 (RCE), T-010 (Cleartext Traffic).
+*   **Mitigations:**
+    1.  Update PostgreSQL to latest stable version immediately.
+    2.  Enable SSL/TLS enforcement in `postgresql.conf`.
+    3.  Restrict network access (pg_hba.conf) to specific app container IPs.
+
+### 8.3 Frontend (Backbone.js)
+*   **Risk:** **Medium**
+*   **Top Threats:** T-004 (XSS), T-002 (CSRF), T-007 (Dependency Injection).
+*   **Mitigations:**
+    1.  Implement CSP headers at Nginx level.
+    2.  Audit Backbone views for `.html()` usage; replace with text binding.
+    3.  Add SRI hashes to all `<script>` tags.
 
 ---
 
 ## 9. NIST 800-53 Rev5 Control Mapping
 
-| Threat ID | Threat Summary | NIST Control | Control Description |
+| Threat / Risk | NIST Control | Control Name | Explanation |
 | :--- | :--- | :--- | :--- |
-| **T-001** | **Malicious Code Injection** | **SI-7** | **Software, Firmware, and Information Integrity:** Employ integrity verification tools (commit signing) to detect unauthorized changes. |
-| | | **CM-5** | **Access Restrictions for Change:** Define and enforce privileges for code submission (Pull Requests). |
-| **T-004** | **Pipeline Tampering** | **CM-3** | **Configuration Change Control:** Systematically manage changes to the CI/CD pipeline configurations. |
-| | | **CM-2** | **Baseline Configuration:** Maintain a baseline of the build environment and prevent unauthorized deviation. |
-| **T-006** | **Container Escape** | **AC-6** | **Least Privilege:** Ensure build agents run with the most restrictive set of privileges (non-root). |
-| | | **SC-39** | **Process Isolation:** Implement containerization that effectively isolates build processes from the host kernel. |
-| **T-014** | **Supply Chain Attack** | **SR-3** | **Supply Chain Risk Management Controls:** Employ controls to protect against supply chain risks (SCA tools). |
-| | | **SA-4** | **Acquisition Security:** Screen and vet third-party libraries and external components. |
-| **T-005** | **Secret Exposure** | **IA-5** | **Authenticator Management:** Protect authenticators (secrets) from unauthorized disclosure (masking/vaulting). |
+| **T-001 (Unsafe Deserialization)** | **SI-2** | Flaw Remediation | Patching Django and removing Piston eliminates the known RCE flaw. |
+| | **SA-22** | Unsupported System Components | Replacing the deprecated Piston framework with DRF removes unsupported software risk. |
+| **T-003 (Mass Assignment)** | **SI-10** | Information Input Validation | Defining strict input schemas prevents unauthorized field modification. |
+| **T-010 (Cleartext DB Traffic)** | **SC-8** | Transmission Confidentiality | Enforcing TLS ensures data traveling between App and DB is encrypted. |
+| **T-007 (Dependency Injection)** | **SA-11** | Developer Security Testing | Using SRI and checking dependencies ensures software integrity. |
+| **CVE-2021-44420 (ACL Bypass)** | **AC-6** | Least Privilege | Ensuring routing logic cannot be bypassed maintains least privilege enforcement. |
 
 ---
 
 ## 10. Hardening Plan
 
-### 10.1 Quick Wins (Immediate - < 1 Day)
-*   **Secret Rotation:** Immediately rotate any credentials potentially exposed in previous build logs (T-005).
-*   **Disable Debug Mode:** Ensure Staging environment has `debug=false` (T-013).
-*   **MFA Enforcement:** Enable MFA for all Source Control and CMS users (T-002, T-003).
-*   **Review Permissions:** Remove write access to the `main` branch for individual developers; enforce Pull Requests (T-001).
+### 10.1 Quick Wins (< 1 Day)
+*   **Patching:** Update Django to fix SQLi (CVE-2024-42005) and ACL bypass (CVE-2021-44420).
+*   **Configuration:** Set `DEBUG = False` in Django production settings.
+*   **Nginx Hardening:** Add rule to deny access to `*.po` and `*.mo` files.
+*   **Piston Config:** Explicitly disable non-JSON serializers in Piston settings.
 
-### 10.2 Short-Term (1 - 4 Weeks)
-*   **Network Allow-listing:** Restrict access to the CMS and SiteSync endpoints to known corporate IPs or VPN subnets (T-009).
-*   **CI/CD Hardening:** Migrate build agents to run as non-root users and remove Docker socket mounts (T-006).
-*   **SCA Implementation:** Integrate a Software Composition Analysis tool into the pipeline to block malicious dependencies (T-014).
-*   **WAF Deployment:** Deploy a WAF in front of Production to mitigate XSS and other web attacks (W-002).
+### 10.2 Short-Term (1-4 Weeks)
+*   **Database Security:** Upgrade PostgreSQL to patch RCE vulnerabilities. Enforce SSL for all connections.
+*   **Frontend Security:** Implement Content Security Policy (CSP) and Subresource Integrity (SRI).
+*   **CSRF:** Verify `X-CSRFToken` implementation in Backbone `sync` method.
+*   **Logging:** Enable centralized logging for all state-changing API methods.
 
-### 10.3 Long-Term (1 - 3 Months)
-*   **Zero Trust Architecture:** Implement ZTNA for access to Staging, Development, and CI/CD interfaces, removing reliance on VPNs (W-006).
-*   **Artifact Signing:** Implement a full chain of custody where artifacts are signed at build time and verified by the admission controller in Production (W-003).
-*   **Centralized Secrets Management:** Deploy HashiCorp Vault or AWS Secrets Manager to inject secrets dynamically, removing all static keys from config files (W-005).
-*   **Immutable Infrastructure:** Re-architect Production deployment to replace servers rather than updating them, preventing configuration drift (T-011).
+### 10.3 Long-Term (1-3 Months)
+*   **Architectural Refactor:** Retire Django Piston; rewrite API using Django REST Framework or Ninja.
+*   **Infrastructure:** Deploy a WAF (ModSecurity or AWS WAF) in front of the Common Server.
+*   **Identity:** Consolidate user stores from DB1 and DB2 into a single source of truth to prevent split-brain identity issues.

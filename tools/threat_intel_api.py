@@ -25,7 +25,12 @@ GENERIC_LABELS = {
     "environment", "node", "host", "author", "content", "developer", "client",
     "user", "content author computer", "automated deployment infrastructure",
     # High-level inferred categories that must not trigger NVD queries on their own
-    "windows", "linux", "os", "web_server", "ci_cd", "pipeline", "developer_machine"
+    "windows", "linux", "os", "web_server", "ci_cd", "pipeline", "developer_machine",
+    # Generic architecture components
+    "monitoring", "logging", "observability", "gateway", "load_balancer", 
+    "service_discovery", "authentication", "auth", "configuration", "config", 
+    "message_queue", "queue", "database", "db", "nosql", "relational", "sql", 
+    "api_gateway", "service_mesh", "microservice", "ui", "frontend", "backend"
 }
 
 # Strict Product Mapping for CPE Matching
@@ -196,9 +201,10 @@ def search_vulnerabilities(tool_context: ToolContext, components: list[str]) -> 
             allowed_products = mapping["allowed_products"]
         else:
             # Fallback for unmapped products: use the product name itself as a loose filter
-            # But we still want to be somewhat strict if possible. 
-            # For now, we'll just use the product name as the search term.
-            pass
+            # Sanitize search term to avoid URL injection issues with nvdlib (e.g. remove '&')
+            search_term = re.sub(r'[^\w\s\-\.]', '', product).strip()
+            if not search_term:
+                continue
 
         try:
             # Query NVD

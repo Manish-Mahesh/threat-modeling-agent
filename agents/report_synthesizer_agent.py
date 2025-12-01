@@ -216,27 +216,20 @@ class ReportSynthesizerAgent:
 
     def synthesize_report(self, match_results: Dict[str, Any], architecture: ArchitectureSchema, attack_paths: List[AttackPath]) -> Dict[str, Any]:
         # This method prepares the data structure. 
-        # We keep it to maintain compatibility with main.py, but the heavy lifting will be done by the LLM in generate_markdown_report.
+        # We return the raw objects to maintain compatibility with main.py (which expects objects for the summary),
+        # but we will serialize them to JSON inside generate_markdown_report for the LLM.
         
         relevant_threats: List[ArchitecturalThreat] = match_results.get("relevant_threats", [])
         relevant_weaknesses: List[ArchitecturalWeakness] = match_results.get("relevant_weaknesses", [])
         relevant_cves: List[Dict[str, Any]] = match_results.get("relevant_cves", [])
         
-        # We pass the raw objects to the LLM via JSON serialization in the next step
         return {
-            "architecture": architecture.model_dump(),
-            "threats": [t.model_dump() for t in relevant_threats],
-            "weaknesses": [w.model_dump() for w in relevant_weaknesses],
-            "cves": [
-                {
-                    **c, 
-                    "cve": c["cve"].model_dump() if hasattr(c["cve"], "model_dump") else c["cve"]
-                } 
-                for c in relevant_cves
-            ],
-            "attack_paths": [ap.model_dump() for ap in attack_paths],
+            "architecture": architecture,
+            "threats": relevant_threats,
+            "weaknesses": relevant_weaknesses,
+            "cves": relevant_cves, # This is a list of dicts like {'cve': ThreatRecord object, ...}
+            "attack_paths": attack_paths,
             "project_name": architecture.project_name,
-            # We include the pre-calculated summary for reference, but the LLM will likely write its own
             "executive_summary": f"Threat Model for {architecture.project_name} generated on {datetime.now().strftime('%Y-%m-%d')}"
         }
 
@@ -245,17 +238,19 @@ class ReportSynthesizerAgent:
         Generates a Markdown formatted string from the report data using the LLM.
         """
         
-        # Convert the report data to a JSON string for the prompt
-        # We use a custom encoder or just str() if simple
-        # Since we used model_dump(), it should be JSON serializable
-        
-        # Handle non-serializable objects if any (datetime?)
+        # Helper to serialize Pydantic models and other types
         def json_serial(obj):
             if isinstance(obj, datetime):
                 return obj.isoformat()
+            if hasattr(obj, "model_dump"):
+                return obj.model_dump()
             raise TypeError (f"Type {type(obj)} not serializable")
 
-        data_str = json.dumps(report_data, indent=2, default=json_serial)
+        # Convert the report data to a JSON string for the prompt
+        try:
+            data_str = json.dumps(report_data, indent=2, default=json_serial)
+        except Exception as e:
+            return f"Error serializing report data: {e}"
 
         prompt = f"""
         INPUT DATA (Structured Threat Model):
