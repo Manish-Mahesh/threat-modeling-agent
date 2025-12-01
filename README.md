@@ -15,7 +15,7 @@ Powered by **Google Gemini 3 Pro** and **Gemini 3 Pro Vision**.
 
 ## 🚀 Key Features
 
-*   **Multimodal Analysis**: Upload a raw architecture diagram (PNG/JPG), and the **Vision Agent** extracts components, data flows, and trust boundaries automatically.
+*   **Multimodal Analysis**: Upload a raw architecture diagram (PNG/JPG) **or a structured JSON definition**, and the system automatically extracts components, data flows, and trust boundaries.
 *   **Intelligent Inference**: The **Component Understanding Agent** infers specific technologies from generic labels (e.g., inferring "PostgreSQL" from "Database" if "Django" is present).
 *   **Real-Time Threat Intel**: Queries the **NVD (National Vulnerability Database)** and **CISA KEV (Known Exploited Vulnerabilities)** catalog to find active CVEs for your specific stack.
 *   **Context-Aware Filtering**: The **Threat Relevance Agent** uses LLM reasoning to filter out false positives, ensuring you only see risks that actually apply to your architecture.
