@@ -1,4 +1,4 @@
-# 🛡️ AI-Powered Multi-Agent Threat Modeling System
+# 🛡️ Sentinel: AI-Powered Multi-Agent Threat Modeling System
 
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
@@ -6,7 +6,7 @@
 ![Status](https://img.shields.io/badge/Status-Active-success.svg)
 
 
-A sophisticated, automated threat modeling pipeline that uses a swarm of AI agents to analyze system architecture diagrams, identify security risks, discover real-world vulnerabilities (CVEs), and simulate attack paths.
+A fully automated, AI-driven pipeline that converts architecture diagrams or JSON into complete threat models, including STRIDE threats, CWE mapping, CVE discovery, attack-path simulations, and NIST 800-53 aligned mitigations.
 
 Powered by **Google Gemini 3 Pro** and **Gemini 3 Pro Vision**.
 
