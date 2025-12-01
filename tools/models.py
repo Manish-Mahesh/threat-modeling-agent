@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 
 # --- Schema for Threat Research Agent Output ---
 # This defines the structured data the Threat Research Agent must return to the Risk Assessment Agent.
@@ -12,6 +12,21 @@ class ThreatRecord(BaseModel):
     affected_products: str = Field(description="List of products/versions identified as affected.")
     is_actively_exploited: bool = Field(description="True if CISA has confirmed active exploitation (KEV Catalog).")
     source: str = Field(description="The data source (e.g., NVD, CISA KEV).")
+    
+    # Extended fields for mitigation generation
+    cvss_vector: Optional[str] = Field(default=None, description="The CVSS vector string (e.g., CVSS:3.1/AV:N/AC:L...).")
+    cvss_score: Optional[float] = Field(default=0.0, description="The numerical CVSS base score.")
+    cwe_id: Optional[str] = Field(default=None, description="The Common Weakness Enumeration ID (e.g., CWE-89).")
+    references: List[str] = Field(default_factory=list, description="List of vendor advisory URLs.")
+    mitigation: Optional['MitigationStrategy'] = Field(default=None, description="Detailed mitigation strategy.")
+
+class MitigationStrategy(BaseModel):
+    """Structured mitigation guidance."""
+    primary_fix: str = Field(description="The main action to take (e.g., Upgrade to version X).")
+    configuration_changes: List[str] = Field(default_factory=list, description="Recommended configuration hardening.")
+    access_control_changes: List[str] = Field(default_factory=list, description="IAM or network access control changes.")
+    monitoring_actions: List[str] = Field(default_factory=list, description="What to log or monitor to detect exploitation.")
+    additional_notes: List[str] = Field(default_factory=list, description="Other context or workarounds.")
 
 class ThreatSearchResults(BaseModel):
     """Container for multiple threat records."""

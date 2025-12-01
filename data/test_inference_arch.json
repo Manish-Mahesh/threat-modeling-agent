@@ -1,0 +1,13 @@
+{
+  "components": [
+    "WordPress Site",
+    "Database Server",
+    "Open AI LLM"
+
+  ],
+  "data_flow_narrative": "The WordPress Site connects to the Database Server to store content. Open AI LLM is used to check data validation",
+  "trust_boundaries": [
+    "Internet",
+    "Internal Network"
+  ]
+}

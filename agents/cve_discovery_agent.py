@@ -4,6 +4,7 @@ Queries NVD/CISA KEV for inferred product categories only.
 """
 from typing import List, Dict, Any
 from tools.threat_intel_api import search_vulnerabilities, _looks_like_software_identifier, GENERIC_LABELS
+from tools.mitigation_engine import generate_mitigation
 
 class CVEDiscoveryAgent:
     """
@@ -27,4 +28,10 @@ class CVEDiscoveryAgent:
             return []
 
         # Call the search with the concrete product identifiers
-        return search_vulnerabilities(None, list(product_identifiers)).threats
+        results = search_vulnerabilities(None, list(product_identifiers))
+        
+        # Enrich with detailed mitigations
+        for threat in results.threats:
+            threat.mitigation = generate_mitigation(threat)
+            
+        return results.threats

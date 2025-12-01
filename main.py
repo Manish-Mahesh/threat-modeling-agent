@@ -21,24 +21,46 @@ from tools.threat_intel_api import search_vulnerabilities, search_vulnerabilitie
 from tools.models import ArchitectureSchema, ThreatSearchResults, FinalReport
 
 
-def main(image_path: str):
+def main(image_path: str = None, json_input: str = None):
     """
     Initializes and orchestrates the Threat Modeling Multi-Agent System.
     """
     
     print("🤖 Initializing Multi-Agent Threat Modeling Pipeline...")
     print("-" * 50)
-    print(f"\n▶️ Starting Threat Modeling Workflow for image: {image_path}")
+    
+    architecture_data = None
 
-    # 1. Vision Agent: Extract raw component labels from diagram
-    from tools.diagram_processor import process_architecture_diagram
-    diagram_data_json = process_architecture_diagram(None, image_path)
-    try:
-        architecture_data = ArchitectureSchema.model_validate_json(diagram_data_json)
-        print("   -> Architecture data extracted and validated.")
-        print(f"   -> Components identified: {architecture_data.components}")
-    except Exception as e:
-        print(f"❌ Error during diagram processing/validation: {e}")
+    if json_input:
+        print(f"\n▶️ Starting Threat Modeling Workflow from JSON input: {json_input}")
+        try:
+            with open(json_input, 'r') as f:
+                data = json.load(f)
+            # If the JSON is the raw output from the diagram processor (string), parse it
+            if isinstance(data, str):
+                architecture_data = ArchitectureSchema.model_validate_json(data)
+            else:
+                # If it's already a dict matching the schema
+                architecture_data = ArchitectureSchema.model_validate(data)
+            print("   -> Architecture data loaded and validated.")
+            print(f"   -> Components identified: {architecture_data.components}")
+        except Exception as e:
+            print(f"❌ Error loading JSON input: {e}")
+            return
+    elif image_path:
+        print(f"\n▶️ Starting Threat Modeling Workflow for image: {image_path}")
+        # 1. Vision Agent: Extract raw component labels from diagram
+        from tools.diagram_processor import process_architecture_diagram
+        diagram_data_json = process_architecture_diagram(None, image_path)
+        try:
+            architecture_data = ArchitectureSchema.model_validate_json(diagram_data_json)
+            print("   -> Architecture data extracted and validated.")
+            print(f"   -> Components identified: {architecture_data.components}")
+        except Exception as e:
+            print(f"❌ Error during diagram processing/validation: {e}")
+            return
+    else:
+        print("❌ Error: Must provide either --image or --input (JSON).")
         return
 
     # 2. Component Understanding Agent: Infer real technologies
@@ -71,6 +93,13 @@ def main(image_path: str):
     from agents.report_synthesizer_agent import ReportSynthesizerAgent
     report_agent = ReportSynthesizerAgent()
     final_report = report_agent.synthesize_report(match_results)
+
+    # Generate Markdown Report
+    markdown_report = report_agent.generate_markdown_report(final_report)
+    report_filename = "threat_report.md"
+    with open(report_filename, "w", encoding="utf-8") as f:
+        f.write(markdown_report)
+    print(f"\n✅ Report saved to {report_filename}")
 
     print("\n\n" + "=" * 50)
     print("🛡️ FINAL THREAT MODEL REPORT (EXECUTIVE SUMMARY)")
@@ -113,9 +142,14 @@ if __name__ == "__main__":
     # Use argparse to accept the image path via command line
     parser = argparse.ArgumentParser(description="Run the Threat Modeling Agent Capstone Project.")
     parser.add_argument(
-        "image_path", 
+        "--image", 
         type=str, 
         help="Path to the system architecture diagram image (e.g., data/my_test_arch.png)"
+    )
+    parser.add_argument(
+        "--input", 
+        type=str, 
+        help="Path to a JSON file containing architecture data (skips image processing)"
     )
     args = parser.parse_args()
     
@@ -125,7 +159,7 @@ if __name__ == "__main__":
         print("Please set the key using: $env:GEMINI_API_KEY='YOUR_KEY'")
     else:
         try:
-            main(args.image_path)
+            main(image_path=args.image, json_input=args.input)
         except Exception as e:
             # Catching top-level exceptions for better visibility than a silent crash
             print("\n" + "="*50)

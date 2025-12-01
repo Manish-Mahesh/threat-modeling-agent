@@ -1,0 +1,11 @@
+{
+  "components": [
+    "Nginx Web Server",
+    "Redis Cache"
+  ],
+  "data_flow_narrative": "The Nginx Web Server handles incoming requests and performs cache lookups against the Redis Cache.",
+  "trust_boundaries": [
+    "Internet Boundary",
+    "Internal Network"
+  ]
+}

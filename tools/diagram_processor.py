@@ -30,6 +30,11 @@ def process_architecture_diagram(tool_context: ToolContext, image_path: str) -> 
         A dictionary representation of the ArchitectureSchema JSON object.
     """
     try:
+        # 0. Bypass for JSON files (Testing Mode)
+        if image_path.lower().endswith('.json'):
+            with open(image_path, 'r') as f:
+                return f.read()
+
         # 1. Initialize the client
         # The client automatically picks up the GEMINI_API_KEY environment variable.
         client = genai.Client()

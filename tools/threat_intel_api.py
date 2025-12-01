@@ -28,6 +28,46 @@ GENERIC_LABELS = {
     "windows", "linux", "os", "web_server", "ci_cd", "pipeline", "developer_machine"
 }
 
+# Strict Product Mapping for CPE Matching
+# Maps inferred component names (lowercase) to NVD search terms and allowed CPE vendor/product pairs.
+PRODUCT_MAPPING = {
+    "nginx web server": {
+        "search_term": "nginx",
+        "allowed_vendors": {"nginx", "f5"}, # F5 owns Nginx
+        "allowed_products": {"nginx"}
+    },
+    "nginx": {
+        "search_term": "nginx",
+        "allowed_vendors": {"nginx", "f5"},
+        "allowed_products": {"nginx"}
+    },
+    "redis cache": {
+        "search_term": "redis",
+        "allowed_vendors": {"redis", "redislabs", "pivotal_software"}, # Pivotal also distributed Redis
+        "allowed_products": {"redis"}
+    },
+    "redis": {
+        "search_term": "redis",
+        "allowed_vendors": {"redis", "redislabs", "pivotal_software"},
+        "allowed_products": {"redis"}
+    },
+    "mysql": {
+        "search_term": "mysql",
+        "allowed_vendors": {"oracle", "mysql"},
+        "allowed_products": {"mysql", "mysql_server"}
+    },
+    "postgresql": {
+        "search_term": "postgresql",
+        "allowed_vendors": {"postgresql", "postgresql_global_development_group"},
+        "allowed_products": {"postgresql"}
+    },
+    "wordpress site": {
+        "search_term": "wordpress",
+        "allowed_vendors": {"wordpress"},
+        "allowed_products": {"wordpress"}
+    }
+}
+
 KNOWN_TECH = {
     "nginx", "apache", "django", "laravel", "node", "postgres", "mysql", "redis",
     "kubernetes", "docker", "jenkins", "gitlab", "ubuntu", "windows",
@@ -106,13 +146,23 @@ def _fetch_kev_cve_ids() -> set[str]:
 def _fetch_kev_cve_ids_cached() -> set[str]:
     return _fetch_kev_cve_ids()
 
+def _parse_cpe(cpe_str: str) -> dict:
+    """Parses a CPE 2.3 string into a dict of parts."""
+    # CPE 2.3 format: cpe:2.3:part:vendor:product:version:update:edition:language:sw_edition:target_sw:target_hw:other
+    parts = cpe_str.split(':')
+    if len(parts) < 5:
+        return {}
+    return {
+        "vendor": parts[3],
+        "product": parts[4]
+    }
+
 def search_vulnerabilities(tool_context: ToolContext, components: list[str]) -> ThreatSearchResults:
     """
     Searches NIST NVD and checks CISA KEV for recent and actively exploited 
-    vulnerabilities relevant to the provided system components (e.g., ['Django 4.2', 'PostgreSQL 14']).
+    vulnerabilities relevant to the provided system components.
     
-    The components list MUST contain specific software names and versions.
-    Returns a structured list of high-priority threats that are relevant to the components.
+    Uses strict CPE matching and severity filtering.
     """
     
     from datetime import datetime, timezone, timedelta
@@ -121,7 +171,7 @@ def search_vulnerabilities(tool_context: ToolContext, components: list[str]) -> 
     found_threats = []
     kev_cve_ids = _fetch_kev_cve_ids_cached()
 
-    # Normalize product identifiers: only search for explicit product names (not generic categories)
+    # Normalize product identifiers
     product_identifiers = [c for c in components if _looks_like_software_identifier(c) and c.lower() not in GENERIC_LABELS]
     if not product_identifiers:
         print("No concrete product identifiers (OS/web server/DB/CI/CD tool) found; skipping NVD product CVE search.")
@@ -131,22 +181,81 @@ def search_vulnerabilities(tool_context: ToolContext, components: list[str]) -> 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=365 * 5)
 
-    # Query NVD for each product identifier, then post-filter by recency and product relevance
     for product in product_identifiers:
+        product_lower = product.lower()
+        
+        # Determine search parameters based on mapping
+        search_term = product
+        allowed_vendors = set()
+        allowed_products = set()
+        
+        if product_lower in PRODUCT_MAPPING:
+            mapping = PRODUCT_MAPPING[product_lower]
+            search_term = mapping["search_term"]
+            allowed_vendors = mapping["allowed_vendors"]
+            allowed_products = mapping["allowed_products"]
+        else:
+            # Fallback for unmapped products: use the product name itself as a loose filter
+            # But we still want to be somewhat strict if possible. 
+            # For now, we'll just use the product name as the search term.
+            pass
+
         try:
-            # Use keyword search but rely on stricter post-filtering below
+            # Query NVD
             results = nvdlib.searchCVE(
-                keywordSearch=product,
-                cvssV3Severity='HIGH',
-                limit=200,
+                keywordSearch=search_term,
+                cvssV3Severity='HIGH', # Initial filter, we'll refine later
+                limit=100, # Reduced limit for stricter search
                 key=NVD_API_KEY
             )
+            # print(f"DEBUG: Found {len(results)} results for {search_term}")
 
             for cve in results:
                 try:
                     cve_id = cve.id
+                    is_kev = cve_id in kev_cve_ids
 
-                    # Recency check: published or lastModified date must be within 5 years OR in KEV
+                    # 1. Severity Filter & Data Extraction
+                    severity = "UNKNOWN"
+                    score = 0.0
+                    vector = None
+                    
+                    if cve.metrics:
+                        if hasattr(cve.metrics, 'cvssMetricV31'):
+                            metric = cve.metrics.cvssMetricV31[0].cvssData
+                            severity = metric.baseSeverity
+                            score = metric.baseScore
+                            vector = metric.vectorString
+                        elif hasattr(cve.metrics, 'cvssMetricV30'):
+                            metric = cve.metrics.cvssMetricV30[0].cvssData
+                            severity = metric.baseSeverity
+                            score = metric.baseScore
+                            vector = metric.vectorString
+                        elif hasattr(cve.metrics, 'cvssMetricV2'):
+                            # Fallback for older CVEs
+                            metric = cve.metrics.cvssMetricV2[0].cvssData
+                            score = metric.baseScore
+                            severity = "HIGH" if score >= 7.0 else "MEDIUM" if score >= 4.0 else "LOW"
+                            vector = metric.vectorString
+
+                    if severity not in ["HIGH", "CRITICAL"] and not is_kev:
+                        continue
+
+                    # Extract CWE
+                    cwe_id = None
+                    if hasattr(cve, 'cwe'):
+                        # nvdlib might return a list or object
+                        if isinstance(cve.cwe, list) and len(cve.cwe) > 0:
+                            cwe_id = cve.cwe[0].value
+
+                    # Extract References
+                    references = []
+                    if hasattr(cve, 'references'):
+                        for ref in cve.references:
+                            if hasattr(ref, 'url'):
+                                references.append(ref.url)
+
+                    # 2. Recency Filter
                     pub_date = None
                     for attr in ("published", "publishedDate", "publishedDateTime", "published_date", "lastModified", "lastModifiedDate"):
                         if hasattr(cve, attr):
@@ -161,69 +270,77 @@ def search_vulnerabilities(tool_context: ToolContext, components: list[str]) -> 
                     if pub_date and pub_date.tzinfo is None:
                         pub_date = pub_date.replace(tzinfo=timezone.utc)
 
-                    is_kev = cve_id in kev_cve_ids
                     if (pub_date and pub_date < cutoff) and not is_kev:
-                        # Too old and not in KEV => skip
                         continue
 
-                    # Extract summary
-                    summary = cve.descriptions[0].value if cve.descriptions else "No summary available."
-                    summary_lower = summary.lower()
-
-                    # Product relevance: require that the CVE mentions the product explicitly in description or CPE/config
-                    product_lower = product.lower()
+                    # 3. Strict Product/CPE Matching
                     relevant = False
+                    
+                    # If we have a strict mapping, enforce it
+                    if allowed_vendors and allowed_products:
+                        # Check CPEs
+                        cpes = []
+                        if hasattr(cve, 'cpe'):
+                            cpes.extend(cve.cpe)
+                        
+                        # Also check configurations for cpeMatch
+                        if hasattr(cve, 'configurations'):
+                            # This is a list of objects
+                            for config in cve.configurations:
+                                if hasattr(config, 'nodes'):
+                                    for node in config.nodes:
+                                        if hasattr(node, 'cpeMatch'):
+                                            for match in node.cpeMatch:
+                                                if hasattr(match, 'criteria'):
+                                                    cpes.append(match.criteria)
 
-                    # Check description text
-                    if product_lower in summary_lower:
-                        relevant = True
+                        for cpe_str in cpes:
+                            # Ensure cpe_str is a string
+                            if not isinstance(cpe_str, str):
+                                if hasattr(cpe_str, 'criteria'):
+                                    cpe_str = cpe_str.criteria
+                                else:
+                                    cpe_str = str(cpe_str)
 
-                    # Check CPEs / configurations if available (nvdlib objects often provide 'vulnerable' attributes)
+                            parsed = _parse_cpe(cpe_str)
+                            if parsed.get("vendor") in allowed_vendors and parsed.get("product") in allowed_products:
+                                relevant = True
+                                break
+                    else:
+                        # Fallback: Description match (Legacy behavior but stricter)
+                        # Only if no mapping exists
+                        summary = cve.descriptions[0].value if cve.descriptions else ""
+                        if product_lower in summary.lower():
+                            relevant = True
+
                     if not relevant:
-                        # Some nvdlib CVE objects expose 'vulnerable_configuration' or similar
-                        for attr in ("cpe", "cpe23Uri", "vulnerable_configuration", "configurations", "vulnerable_configuration_cpe_list"):
-                            if hasattr(cve, attr):
-                                try:
-                                    container = getattr(cve, attr)
-                                    txt = str(container).lower()
-                                    if product_lower in txt:
-                                        relevant = True
-                                        break
-                                except Exception:
-                                    continue
-
-                    # If not relevant and not KEV, skip
-                    if not relevant and not is_kev:
                         continue
-
-                    # Get severity
-                    severity = "N/A"
-                    if cve.metrics:
-                        if hasattr(cve.metrics, 'cvssMetricV31'):
-                            severity = cve.metrics.cvssMetricV31[0].cvssData.baseSeverity
-                        elif hasattr(cve.metrics, 'cvssMetricV30'):
-                            severity = cve.metrics.cvssMetricV30[0].cvssData.baseSeverity
 
                     # Build record
+                    summary = cve.descriptions[0].value if cve.descriptions else "No summary available."
                     record = ThreatRecord(
                         cve_id=cve_id,
                         summary=summary,
                         severity=severity,
-                        affected_products=product,
+                        affected_products=product, # Tie to the component name
                         is_actively_exploited=is_kev,
-                        source="NVD/CISA KEV"
+                        source="NVD/CISA KEV",
+                        cvss_vector=vector,
+                        cvss_score=score,
+                        cwe_id=cwe_id,
+                        references=references
                     )
                     found_threats.append(record)
 
                 except Exception as e:
                     # Skip problematic CVE entries gracefully
-                    print(f"Skipping CVE entry due to parsing error: {e}")
+                    continue
 
         except Exception as e:
             print(f"Error searching NVD for {product}: {e}")
 
     if not found_threats:
-        print("No product-level CVEs were identified as directly applicable to this system. Only generic architectural threats will be reported.")
+        print("No product-level CVEs were identified as directly applicable to this system.")
 
     return ThreatSearchResults(threats=found_threats)
 
