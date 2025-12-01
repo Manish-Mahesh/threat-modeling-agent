@@ -42,7 +42,7 @@ class SimpleAgent:
         )
 
 # 2. Define the Agent Factory Function
-def create_assessment_agent(model_name: str = 'gemini-2.0-flash'):
+def create_assessment_agent(model_name: str = 'gemini-3-pro-preview'):
     """
     Creates and configures the Risk Assessment Agent. This agent is primarily a reasoning agent 
     and typically does not need external tools, relying instead on its prompt and input data.

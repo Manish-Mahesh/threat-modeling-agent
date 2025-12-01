@@ -51,7 +51,7 @@ class SimpleAgent:
         )
 
 # 2. Define the Agent Factory Function (Accepting tools as argument)
-def create_planner_agent(tools: list, model_name: str = 'gemini-2.0-flash'):
+def create_planner_agent(tools: list, model_name: str = 'gemini-3-pro-preview'):
     """Creates and configures the Root Planner Agent."""
     
     planner_agent = SimpleAgent(

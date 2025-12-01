@@ -1,97 +1,102 @@
 """
 ThreatKnowledgeAgent
-Generates generic architectural threats using built-in threat patterns and STRIDE analysis.
+Generates detailed architectural threats and weaknesses using LLM-based STRIDE analysis.
 """
+import os
 from typing import List, Dict, Any
-from tools.models import ArchitecturalThreat, ArchitectureSchema
+from google import genai
+from google.genai import types
+from tenacity import retry, stop_after_attempt, wait_exponential
+from pydantic import BaseModel, Field
+from tools.models import ArchitecturalThreat, ArchitecturalWeakness, ArchitectureSchema
+
+class ThreatKnowledgeOutput(BaseModel):
+    threats: List[ArchitecturalThreat]
+    weaknesses: List[ArchitecturalWeakness]
+
+THREAT_KNOWLEDGE_INSTRUCTION = """
+You are a STRIDE Threat Modeling Expert.
+Your job is to analyze a system architecture and generate a comprehensive list of threats and architectural weaknesses.
+
+RULES:
+1. **Deep STRIDE Analysis:** For EACH component, generate at least 6-10 detailed threats.
+   - **S**poofing
+   - **T**ampering
+   - **R**epudiation
+   - **I**nformation Disclosure
+   - **D**enial of Service
+   - **E**levation of Privilege
+   - **Avoid generic filler.** Use specific technology knowledge (e.g., "Redis RESP protocol injection", "Nginx worker process buffer overflow").
+   - **CWE Mapping:** For each threat, identify the most relevant CWE ID (e.g., CWE-79, CWE-89).
+
+2. **Data Flow Threats:** For every data flow, identify:
+   - Tampering (integrity)
+   - Information Disclosure (confidentiality)
+   - Denial of Service (availability)
+   - Protocol-specific risks (e.g., HTTP/2 downgrade, unencrypted TCP).
+
+3. **Architectural Weaknesses:** Identify missing security controls (e.g., "Lack of WAF", "Missing Network Segmentation", "No Audit Logging").
+
+4. **Output Format:** Return a JSON object with two lists: 'threats' and 'weaknesses'.
+"""
+
+class SimpleAgent:
+    def __init__(self, model_name, instruction, config=None):
+        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model_name = model_name
+        self.instruction = instruction
+        self.config = config
+
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def generate_content(self, prompt):
+        config = self.config
+        if config is None:
+            config = types.GenerateContentConfig()
+        
+        if not config.system_instruction:
+            config.system_instruction = self.instruction
+            
+        return self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=config
+        )
 
 class ThreatKnowledgeAgent:
     """
-    Produces generic architectural threats based on inferred component types and STRIDE analysis.
+    Produces detailed architectural threats and weaknesses based on inferred component types and STRIDE analysis.
     """
-    def generate_threats(self, inferred_components: List[Dict[str, Any]], architecture: ArchitectureSchema) -> List[ArchitecturalThreat]:
-        threats = []
-        
-        # 1. Component-Based Threats (Existing Logic + STRIDE Mapping)
-        for comp in inferred_components:
-            comp_name = comp["component_name"]
-            categories = comp["inferred_product_categories"]
-            
-            for category in categories:
-                if category == "web_server":
-                    threats.append(ArchitecturalThreat(
-                        threat_id="T-WEB-01",
-                        category="Spoofing",
-                        description=f"Attacker may spoof the identity of the {comp_name} to intercept user traffic.",
-                        affected_component=comp_name,
-                        severity="High",
-                        mitigation_steps=["Implement TLS/SSL", "Use strong server certificates"]
-                    ))
-                    threats.append(ArchitecturalThreat(
-                        threat_id="T-WEB-02",
-                        category="Denial of Service",
-                        description=f"The {comp_name} may be subject to resource exhaustion attacks (DDoS).",
-                        affected_component=comp_name,
-                        severity="High",
-                        mitigation_steps=["Implement rate limiting", "Use a WAF", "Configure resource quotas"]
-                    ))
-                elif category == "database":
-                    threats.append(ArchitecturalThreat(
-                        threat_id="T-DB-01",
-                        category="Tampering",
-                        description=f"Malicious SQL injection could tamper with data in {comp_name}.",
-                        affected_component=comp_name,
-                        affected_asset="Stored Data",
-                        severity="Critical",
-                        mitigation_steps=["Use parameterized queries", "Least privilege database accounts"]
-                    ))
-                    threats.append(ArchitecturalThreat(
-                        threat_id="T-DB-02",
-                        category="Information Disclosure",
-                        description=f"Sensitive data in {comp_name} could be exposed via weak access controls or unencrypted storage.",
-                        affected_component=comp_name,
-                        affected_asset="Stored Data",
-                        severity="Critical",
-                        mitigation_steps=["Encrypt data at rest", "Implement strong ACLs"]
-                    ))
-                elif category == "cache":
-                    threats.append(ArchitecturalThreat(
-                        threat_id="T-CACHE-01",
-                        category="Information Disclosure",
-                        description=f"Cached data in {comp_name} might be accessible without authentication.",
-                        affected_component=comp_name,
-                        affected_asset="Cached Data",
-                        severity="Medium",
-                        mitigation_steps=["Require authentication for cache access", "Encrypt sensitive cached data"]
-                    ))
+    def __init__(self, model_name: str = 'gemini-3-pro-preview'):
+        self.agent = SimpleAgent(
+            model_name=model_name,
+            instruction=THREAT_KNOWLEDGE_INSTRUCTION,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ThreatKnowledgeOutput,
+            )
+        )
 
-        # 2. Trust Boundary Analysis
-        # We need to look at the architecture schema to find boundaries
-        # Since we don't have a full graph object here, we infer based on "Internet" or "External" mentions
-        if architecture.trust_boundaries:
-            for boundary in architecture.trust_boundaries:
-                if "Internet" in boundary or "Public" in boundary:
-                    threats.append(ArchitecturalThreat(
-                        threat_id="T-NET-01",
-                        category="Elevation of Privilege",
-                        description=f"Attackers crossing the '{boundary}' boundary may attempt to elevate privileges.",
-                        affected_component="Network Boundary",
-                        trust_boundary=boundary,
-                        severity="High",
-                        mitigation_steps=["Implement DMZ", "Use Firewalls/WAF", "Zero Trust Architecture"]
-                    ))
+    def generate_threats(self, inferred_components: List[Dict[str, Any]], architecture: ArchitectureSchema) -> Dict[str, Any]:
+        prompt = f"""
+        SYSTEM ARCHITECTURE:
+        {architecture.model_dump_json(indent=2)}
 
-        # 3. Data Flow Analysis (Simple Heuristics)
-        # If we had structured dataflows, we would iterate them. 
-        # For now, we use the narrative if available or just general principles.
-        if "database" in str(inferred_components).lower():
-             threats.append(ArchitecturalThreat(
-                threat_id="T-FLOW-01",
-                category="Repudiation",
-                description="Database transactions may lack sufficient logging to prove who performed an action.",
-                affected_component="Database Transaction Logs",
-                severity="Medium",
-                mitigation_steps=["Enable comprehensive audit logging", "Secure log storage"]
-            ))
+        INFERRED COMPONENTS:
+        {inferred_components}
 
-        return threats
+        TASK: Generate detailed STRIDE threats and architectural weaknesses for this system.
+        """
+
+        try:
+            response = self.agent.generate_content(prompt)
+            import json
+            data = json.loads(response.text)
+            # Convert to Pydantic model to ensure objects are returned, not dicts
+            output = ThreatKnowledgeOutput(**data)
+            return {
+                "threats": output.threats,
+                "weaknesses": output.weaknesses
+            }
+        except Exception as e:
+            print(f"Error generating threats: {e}")
+            return {"threats": [], "weaknesses": []}

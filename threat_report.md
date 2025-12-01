@@ -1,480 +1,204 @@
-# 🛡️ Threat Model Report: E-Commerce Platform
-**Date:** 2025-12-01
+# Threat Model Report: Content Management and Automated Deployment Workflow
 
-## 1. Executive Summary
-This report presents a comprehensive threat model for the **E-Commerce Platform** system. The analysis identified **3 architectural threats** using the STRIDE methodology and **24 specific CVE vulnerabilities** affecting the technology stack. Notably, **0 high/critical severity vulnerabilities** were detected that require immediate attention. The report includes NIST 800-53 mapped controls for compliance and hardening.
+**Date:** 2025-12-01  
+**Project:** Content Management and Automated Deployment Workflow  
+**Assessment Type:** Automated Architecture Risk Assessment
 
-## 2. Architecture Understanding
-**Description:** A simple e-commerce architecture with a web frontend and a caching layer.
+---
 
-**Key Components:**
-- Nginx Web Server
-- Redis Cache
+## 1. Architecture Extraction
 
-**Data Flows:**
-- Nginx Web Server -> Redis Cache (RESP)
+### 1.1 Components
+*   Content Author Computer (Workstation)
+*   Developer Computer (Workstation)
+*   Automated Deployment Infrastructure (Server / CI/CD System)
+*   Development (Server Environment)
+*   Staging (Server Environment)
+*   Production (Server Environment)
 
-**Trust Boundaries:**
-- Internet Boundary
-- Internal Network
+### 1.2 Data Flows
+1.  **Content Author Computer** $\rightarrow$ **Staging** (Protocol: Content Creation / HTTPs)
+2.  **Developer Computer** $\rightarrow$ **Automated Deployment Infrastructure** (Protocol: Source Code Check In / Git / SSH)
+3.  **Automated Deployment Infrastructure** $\rightarrow$ **Development** (Protocol: Publish Code / SCP or Agent)
+4.  **Automated Deployment Infrastructure** $\rightarrow$ **Staging** (Protocol: Publish Code / SCP or Agent)
+5.  **Automated Deployment Infrastructure** $\rightarrow$ **Production** (Protocol: Publish Code / SCP or Agent)
+6.  **Staging** $\rightarrow$ **Production** (Protocol: SiteSync Content / HTTP API)
 
-## 3. Asset Inventory & Classification
-| Asset Name | Type | Criticality |
-|---|---|---|
-| Nginx Web Server | Web Server | Medium |
-| Redis Cache | Cache | Medium |
+### 1.3 Trust Boundaries
+*Note: Boundaries are inferred based on component roles as they were not explicitly defined in the input structure.*
 
-## 4. Threat Modeling Methodology
-This assessment utilizes the **STRIDE** methodology to identify architectural threats:
-- **S**poofing
-- **T**ampering
-- **R**epudiation
-- **I**nformation Disclosure
-- **D**enial of Service
-- **E**levation of Privilege
+1.  **Workstation Boundary:** Separates Developer and Author computers from the corporate/cloud network.
+2.  **CI/CD Perimeter:** Surrounds the Automated Deployment Infrastructure, separating it from general network traffic.
+3.  **Environment Segmentation:** Distinct boundaries separating Development, Staging, and Production environments.
+4.  **Internet Boundary:** Implicit boundary facing the Production environment (assumed public-facing web server).
 
-Vulnerabilities are analyzed using **CVSS v3.1** scoring and mapped to **NIST 800-53** controls.
+---
 
-## 5. Identified Threats & Vulnerabilities
-### 5.1 Architectural Threats (STRIDE)
-#### T-WEB-01: Spoofing - Nginx Web Server
-- **Description:** Attacker may spoof the identity of the Nginx Web Server to intercept user traffic.
-- **Severity:** High
-- **Mitigation:** Implement TLS/SSL, Use strong server certificates
+## 2. Component Inventory Table
 
-#### T-WEB-02: Denial of Service - Nginx Web Server
-- **Description:** The Nginx Web Server may be subject to resource exhaustion attacks (DDoS).
-- **Severity:** High
-- **Mitigation:** Implement rate limiting, Use a WAF, Configure resource quotas
+| Component | Type | Criticality | Notes |
+| :--- | :--- | :--- | :--- |
+| **Production** | Server Environment | **Critical** | Hosts live customer-facing application and data. Direct target for attackers. |
+| **Automated Deployment Infrastructure** | CI/CD System | **Critical** | Has write access to all environments (Dev, Staging, Prod). Single point of failure for integrity. |
+| **Staging** | Server Environment | **High** | Connected to Production via SiteSync. Often has weaker security than Prod but can influence Prod data. |
+| **Developer Computer** | Workstation | **High** | holds source code and access credentials to the CI/CD pipeline. |
+| **Content Author Computer** | Workstation | **Medium** | Access to CMS content. Compromise leads to defacement or misinformation. |
+| **Development** | Server Environment | **Low** | Sandbox environment. Low business impact if compromised, provided lateral movement is blocked. |
 
-#### T-NET-01: Elevation of Privilege - Network Boundary
-- **Description:** Attackers crossing the 'Internet Boundary' boundary may attempt to elevate privileges.
-- **Severity:** High
-- **Mitigation:** Implement DMZ, Use Firewalls/WAF, Zero Trust Architecture
+---
 
-### 5.2 Known Vulnerabilities (CVEs)
-#### CVE-2021-23017 (CVSS: 7.7)
-- **Summary:** A security issue in nginx resolver was identified, which might allow an attacker who is able to forge UDP packets from the DNS server to cause 1-byte memory overwrite, resulting in worker process crash or potential other impact.
-- **Severity:** HIGH
-- **Affected Component:** Nginx Web Server
+## 3. STRIDE Threat Enumeration
 
-#### CVE-2022-41741 (CVSS: 7.0)
-- **Summary:** NGINX Open Source before versions 1.23.2 and 1.22.1, NGINX Open Source Subscription before versions R2 P1 and R1 P1, and NGINX Plus before versions R27 P1 and R26 P1 have a vulnerability in the module ngx_http_mp4_module that might allow a local attacker to corrupt NGINX worker memory, resulting in its termination or potential other impact using a specially crafted audio or video file. The issue affects only NGINX products that are built with the ngx_http_mp4_module, when the mp4 directive is used in the configuration file. Further, the attack is possible only if an attacker can trigger processing of a specially crafted audio or video file with the module ngx_http_mp4_module.
-- **Severity:** HIGH
-- **Affected Component:** Nginx Web Server
+| ID | Category | CWE | Description | Preconditions | Impact | Severity | Mitigations |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **T-001** | Tampering | CWE-494 | **Malicious Code Injection:** Attacker compromises Developer Computer and injects malware into git before check-in. | Compromised workstation; No code review enforcement. | Production deployment of backdoors. | **High** | 1. Enforce GPG signing for commits.<br>2. Mandatory Pull Request reviews.<br>3. EDR on workstations. |
+| **T-002** | Spoofing | CWE-287 | **Developer Identity Theft:** Attacker steals SSH keys/tokens to push unauthorized code. | Unencrypted keys on disk; Weak endpoint security. | Unauthorized code injection into pipeline. | **High** | 1. Hardware security keys (YubiKey).<br>2. Enforce MFA for repo access.<br>3. Short-lived tokens. |
+| **T-003** | Info Disclosure | CWE-522 | **CMS Session Hijacking:** Spyware on Author Computer captures session cookies for Staging CMS. | Malware infection; No MFA/Timeouts. | Leak of embargoed content/data. | **Medium** | 1. Rigid session timeouts.<br>2. IP allow-listing.<br>3. Context-aware access control. |
+| **T-004** | Tampering | CWE-74 | **Pipeline Configuration Tampering:** Attacker modifies build scripts (e.g., Jenkinsfile) to exfiltrate secrets or inject backdoors. | Weak CI/CD access controls; Compromised service account. | Complete compromise of all downstream environments. | **Critical** | 1. Version control pipeline definitions.<br>2. Strictly monitor config changes.<br>3. Ephemeral build containers. |
+| **T-005** | Info Disclosure | CWE-532 | **Secret Exposure in Logs:** Build logs expose DB strings/API keys during 'Publish' phase. | Verbose logging; Secrets echoed in scripts. | Direct access to Prod databases/cloud resources. | **High** | 1. Secret masking/redaction.<br>2. Inject as env vars only.<br>3. Use centralized Vault. |
+| **T-006** | Elevation of Privilege | CWE-250 | **Container Escape:** CI/CD runner executes with excessive privileges (e.g., Docker socket), allowing host compromise. | Docker-in-Docker (Privileged); Root execution. | Full control over deployment infrastructure. | **High** | 1. Unprivileged build agents.<br>2. Rootless containers (Podman).<br>3. Block Docker socket mounting. |
+| **T-007** | Denial of Service | CWE-400 | **Build Queue Exhaustion:** Attacker triggers massive builds, exhausting CI resources. | Public webhooks without auth; No rate limiting. | Inability to push hotfixes to Prod. | **Medium** | 1. Rate limit webhooks.<br>2. Resource quotas.<br>3. Auto-scaling agents. |
+| **T-008** | Tampering | CWE-319 | **SiteSync MitM:** Attacker intercepts Staging $\rightarrow$ Prod sync to inject XSS into content. | Unencrypted HTTP; Lack of mTLS. | Visitors attacked via stored XSS on Prod. | **High** | 1. Enforce mTLS for sync.<br>2. Verify content checksums.<br>3. Encrypt data in transit. |
+| **T-009** | Spoofing | CWE-290 | **Fake Staging Environment:** Attacker mimics Staging to overwrite Production content via SiteSync. | Weak auth on sync endpoint; No network segmentation. | Defacement or reputation loss. | **High** | 1. Strict IP allow-listing.<br>2. Strong API Auth (Keys + mTLS).<br>3. Network segmentation. |
+| **T-010** | Tampering | CWE-79 | **Replicated Stored XSS:** Malicious content entered in Staging replicates to Prod and executes. | CMS allows raw HTML; No output encoding. | Compromise of end-user sessions. | **High** | 1. Strict input validation.<br>2. Content Security Policy (CSP).<br>3. HTML Sanitization. |
+| **T-011** | Repudiation | CWE-778 | **Unaccountable Config Changes:** Admin modifies Prod directly; denies causing outage. | Direct SSH/RDP enabled; No centralized logs. | Inability to trace root cause/breach. | **Medium** | 1. Disable direct access (use IaC).<br>2. Immutable audit logs.<br>3. Centralized SIEM. |
+| **T-012** | Tampering | CWE-502 | **Insecure Deserialization:** Vulnerable deployment agent on Development server exploited for RCE. | Vulnerable agent version; Untrusted data streams. | RCE on Development server. | **High** | 1. Patch agents.<br>2. Block serialized network objects.<br>3. Sign artifacts. |
+| **T-013** | Info Disclosure | CWE-209 | **Debug Mode Leakage:** Staging configured with Debug Mode enabled exposes stack traces. | Dev config on Staging; Public access. | Reconnaissance data for attackers. | **Medium** | 1. Disable debug mode.<br>2. Custom error pages.<br>3. VPN-only access. |
+| **T-014** | Elevation of Privilege | CWE-829 | **Supply Chain Attack:** CI/CD pulls compromised 3rd-party dependency (npm/PyPI). | Unrestricted internet access; Using 'latest' tags. | Malicious code running in Prod. | **Critical** | 1. Private artifact proxy/scan.<br>2. Lock dependency versions.<br>3. Software Composition Analysis (SCA). |
+| **T-015** | Denial of Service | CWE-400 | **Bandwidth Saturation:** SiteSync transfers massive files, choking Prod bandwidth. | No QoS; No file size limits. | Production site unresponsiveness. | **Medium** | 1. Throttle sync bandwidth.<br>2. Off-peak scheduling.<br>3. Optimize media. |
 
-#### CVE-2022-41742 (CVSS: 7.1)
-- **Summary:** NGINX Open Source before versions 1.23.2 and 1.22.1, NGINX Open Source Subscription before versions R2 P1 and R1 P1, and NGINX Plus before versions R27 P1 and R26 P1 have a vulnerability in the module ngx_http_mp4_module that might allow a local attacker to cause a worker process crash, or might result in worker process memory disclosure by using a specially crafted audio or video file. The issue affects only NGINX products that are built with the module ngx_http_mp4_module, when the mp4 directive is used in the configuration file. Further, the attack is possible only if an attacker can trigger processing of a specially crafted audio or video file with the module ngx_http_mp4_module.
-- **Severity:** HIGH
-- **Affected Component:** Nginx Web Server
+---
 
-#### CVE-2021-29477 (CVSS: 7.5)
-- **Summary:** Redis is an open source (BSD licensed), in-memory data structure store, used as a database, cache, and message broker. An integer overflow bug in Redis version 6.0 or newer could be exploited using the `STRALGO LCS` command to corrupt the heap and potentially result with remote code execution. The problem is fixed in version 6.2.3 and 6.0.13. An additional workaround to mitigate the problem without patching the redis-server executable is to use ACL configuration to prevent clients from using the `STRALGO LCS` command.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+## 4. Architectural Weaknesses
 
-#### CVE-2021-29478 (CVSS: 7.5)
-- **Summary:** Redis is an open source (BSD licensed), in-memory data structure store, used as a database, cache, and message broker. An integer overflow bug in Redis 6.2 before 6.2.3 could be exploited to corrupt the heap and potentially result with remote code execution. Redis 6.0 and earlier are not directly affected by this issue. The problem is fixed in version 6.2.3. An additional workaround to mitigate the problem without patching the `redis-server` executable is to prevent users from modifying the `set-max-intset-entries` configuration parameter. This can be done using ACL to restrict unprivileged users from using the `CONFIG SET` command.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+| ID | Weakness | Description | Impact |
+| :--- | :--- | :--- | :--- |
+| **W-001** | **Lack of Network Segmentation** | Potential connectivity overlap between Dev, Staging, and Prod, or flat access from CI/CD to all. | Lateral movement allows compromise of Prod from Dev or Staging. |
+| **W-002** | **Missing WAF** | No explicit Web Application Firewall protecting Staging or Production. | Increased vulnerability to OWASP Top 10 (SQLi, XSS) on public interfaces. |
+| **W-003** | **Insufficient Artifact Integrity** | No mention of artifact signing/verification between Build and Deploy phases. | Environments may execute tampered or corrupted binaries without detection. |
+| **W-004** | **Implicit Trust in SiteSync** | High-privilege push from Staging to Prod creates a "downstream trust" vulnerability. | If Staging is compromised (lower security), attacker can wipe or corrupt Prod. |
+| **W-005** | **Lack of Secret Management** | No centralized Secrets Manager (Vault/AWS Secrets) visualized; implies static config. | Credential theft via file system access, git history, or config leakage. |
+| **W-006** | **Unclear Author Authorization** | Content Authors push to Staging without clear network restrictions (VPN/ZTNA). | Publicly accessible Staging login increases attack surface for brute force/phishing. |
 
-#### CVE-2021-32625 (CVSS: 7.5)
-- **Summary:** Redis is an open source (BSD licensed), in-memory data structure store, used as a database, cache, and message broker. An integer overflow bug in Redis version 6.0 or newer, could be exploited using the STRALGO LCS command to corrupt the heap and potentially result with remote code execution. This is a result of an incomplete fix by CVE-2021-29477. The problem is fixed in version 6.2.4 and 6.0.14. An additional workaround to mitigate the problem without patching the redis-server executable is to use ACL configuration to prevent clients from using the STRALGO LCS command. On 64 bit systems which have the fixes of CVE-2021-29477 (6.2.3 or 6.0.13), it is sufficient to make sure that the proto-max-bulk-len config parameter is smaller than 2GB (default is 512MB).
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+---
 
-#### CVE-2021-32761 (CVSS: 7.5)
-- **Summary:** Redis is an in-memory database that persists on disk. A vulnerability involving out-of-bounds read and integer overflow to buffer overflow exists starting with version 2.2 and prior to versions 5.0.13, 6.0.15, and 6.2.5. On 32-bit systems, Redis `*BIT*` command are vulnerable to integer overflow that can potentially be exploited to corrupt the heap, leak arbitrary heap contents or trigger remote code execution. The vulnerability involves changing the default `proto-max-bulk-len` configuration parameter to a very large value and constructing specially crafted commands bit commands. This problem only affects Redis on 32-bit platforms, or compiled as a 32-bit binary. Redis versions 5.0.`3m 6.0.15, and 6.2.5 contain patches for this issue. An additional workaround to mitigate the problem without patching the `redis-server` executable is to prevent users from modifying the `proto-max-bulk-len` configuration parameter. This can be done using ACL to restrict unprivileged users from using the CONFIG SET command.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+## 5. CVE Discovery
 
-#### CVE-2020-21468 (CVSS: 7.5)
-- **Summary:** A segmentation fault in the redis-server component of Redis 5.0.7 leads to a denial of service (DOS). NOTE: the vendor cannot reproduce this issue in a released version, such as 5.0.7
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+*Status: **CVE analysis skipped due to insufficient product detail.***
 
-#### CVE-2021-32626 (CVSS: 7.5)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. In affected versions specially crafted Lua scripts executing in Redis can cause the heap-based Lua stack to be overflowed, due to incomplete checks for this condition. This can result with heap corruption and potentially remote code execution. This problem exists in all versions of Redis with Lua scripting support, starting from 2.6. The problem is fixed in versions 6.2.6, 6.0.16 and 5.0.14. For users unable to update an additional workaround to mitigate the problem without patching the redis-server executable is to prevent users from executing Lua scripts. This can be done using ACL to restrict EVAL and EVALSHA commands.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+*Reasoning:* The architecture defines generic components ("Server Environment", "CI/CD System") without specifying vendors or versions (e.g., Jenkins v2.4, Windows Server 2019, WordPress 5.8). Generating CVEs without this data would result in hallucination.
 
-#### CVE-2021-32627 (CVSS: 7.5)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. In affected versions an integer overflow bug in Redis can be exploited to corrupt the heap and potentially result with remote code execution. The vulnerability involves changing the default proto-max-bulk-len and client-query-buffer-limit configuration parameters to very large values and constructing specially crafted very large stream elements. The problem is fixed in Redis 6.2.6, 6.0.16 and 5.0.14. For users unable to upgrade an additional workaround to mitigate the problem without patching the redis-server executable is to prevent users from modifying the proto-max-bulk-len configuration parameter. This can be done using ACL to restrict unprivileged users from using the CONFIG SET command.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+---
 
-#### CVE-2021-32628 (CVSS: 7.5)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. An integer overflow bug in the ziplist data structure used by all versions of Redis can be exploited to corrupt the heap and potentially result with remote code execution. The vulnerability involves modifying the default ziplist configuration parameters (hash-max-ziplist-entries, hash-max-ziplist-value, zset-max-ziplist-entries or zset-max-ziplist-value) to a very large value, and then constructing specially crafted commands to create very large ziplists. The problem is fixed in Redis versions 6.2.6, 6.0.16, 5.0.14. An additional workaround to mitigate the problem without patching the redis-server executable is to prevent users from modifying the above configuration parameters. This can be done using ACL to restrict unprivileged users from using the CONFIG SET command.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+## 6. Threat ↔ CVE Matrix
 
-#### CVE-2021-32675 (CVSS: 7.5)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. When parsing an incoming Redis Standard Protocol (RESP) request, Redis allocates memory according to user-specified values which determine the number of elements (in the multi-bulk header) and size of each element (in the bulk header). An attacker delivering specially crafted requests over multiple connections can cause the server to allocate significant amount of memory. Because the same parsing mechanism is used to handle authentication requests, this vulnerability can also be exploited by unauthenticated users. The problem is fixed in Redis versions 6.2.6, 6.0.16 and 5.0.14. An additional workaround to mitigate this problem without patching the redis-server executable is to block access to prevent unauthenticated users from connecting to Redis. This can be done in different ways: Using network access control tools like firewalls, iptables, security groups, etc. or Enabling TLS and requiring users to authenticate using client side certificates.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+*Not applicable (No CVEs identified).*
 
-#### CVE-2021-32687 (CVSS: 7.5)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. An integer overflow bug affecting all versions of Redis can be exploited to corrupt the heap and potentially be used to leak arbitrary contents of the heap or trigger remote code execution. The vulnerability involves changing the default set-max-intset-entries configuration parameter to a very large value and constructing specially crafted commands to manipulate sets. The problem is fixed in Redis versions 6.2.6, 6.0.16 and 5.0.14. An additional workaround to mitigate the problem without patching the redis-server executable is to prevent users from modifying the set-max-intset-entries configuration parameter. This can be done using ACL to restrict unprivileged users from using the CONFIG SET command.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+---
 
-#### CVE-2021-32762 (CVSS: 7.5)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. The redis-cli command line tool and redis-sentinel service may be vulnerable to integer overflow when parsing specially crafted large multi-bulk network replies. This is a result of a vulnerability in the underlying hiredis library which does not perform an overflow check before calling the calloc() heap allocation function. This issue only impacts systems with heap allocators that do not perform their own overflow checks. Most modern systems do and are therefore not likely to be affected. Furthermore, by default redis-sentinel uses the jemalloc allocator which is also not vulnerable. The problem is fixed in Redis versions 6.2.6, 6.0.16 and 5.0.14.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+## 7. Attack Path Simulations
 
-#### CVE-2021-41099 (CVSS: 7.5)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. An integer overflow bug in the underlying string library can be used to corrupt the heap and potentially result with denial of service or remote code execution. The vulnerability involves changing the default proto-max-bulk-len configuration parameter to a very large value and constructing specially crafted network payloads or commands. The problem is fixed in Redis versions 6.2.6, 6.0.16 and 5.0.14. An additional workaround to mitigate the problem without patching the redis-server executable is to prevent users from modifying the proto-max-bulk-len configuration parameter. This can be done using ACL to restrict unprivileged users from using the CONFIG SET command.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+### AP-01: Production Compromise via Developer Workstation
+**Impact:** Full System Compromise and RCE on Production.  
+**Likelihood:** High  
 
-#### CVE-2022-33105 (CVSS: 7.5)
-- **Summary:** Redis v7.0 was discovered to contain a memory leak via the component streamGetEdgeID.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+1.  **Credential Theft:** Attacker compromises Developer Computer via phishing, stealing SSH keys (Ref: **T-002**).
+2.  **Code Injection:** Attacker modifies source code to include a webshell/backdoor and commits to the repo (Ref: **T-001**).
+3.  **Pipeline Abuse:** Automated Deployment Infrastructure trusts the commit, builds the artifact, and deploys it to Production (Ref: **W-003**).
+4.  **Execution:** Attacker accesses the webshell on the live Production site.
 
-#### CVE-2022-31144 (CVSS: 7.0)
-- **Summary:** Redis is an in-memory database that persists on disk. A specially crafted `XAUTOCLAIM` command on a stream key in a specific state may result with heap overflow, and potentially remote code execution. This problem affects versions on the 7.x branch prior to 7.0.4. The patch is released in version 7.0.4.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+### AP-02: Supply Chain to Infrastructure Takeover
+**Impact:** Total compromise of CI/CD and Data Breach of Production DB.  
+**Likelihood:** Medium  
 
-#### CVE-2023-31655 (CVSS: 7.5)
-- **Summary:** redis v7.0.10 was discovered to contain a segmentation violation. This vulnerability allows attackers to cause a Denial of Service (DoS) via unspecified vectors.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+1.  **Package Poisoning:** Attacker publishes a typosquatted package to a public registry (npm/PyPI) (Ref: **T-014**).
+2.  **Ingestion:** CI/CD build script installs the malicious dependency.
+3.  **Container Escape:** Malicious script exploits privileged Docker socket access to break out of the build container (Ref: **T-006**).
+4.  **Credential Scrape:** Attacker accesses host env vars/logs to steal Production DB credentials (Ref: **T-005**).
+5.  **Exfiltration:** Attacker connects directly to Production DB and exfiltrates data.
 
-#### CVE-2023-36824 (CVSS: 7.4)
-- **Summary:** Redis is an in-memory database that persists on disk. In Redit 7.0 prior to 7.0.12, extracting key names from a command and a list of arguments may, in some cases, trigger a heap overflow and result in reading random heap memory, heap corruption and potentially remote code execution. Several scenarios that may lead to authenticated users executing a specially crafted `COMMAND GETKEYS` or `COMMAND GETKEYSANDFLAGS`and authenticated users who were set with ACL rules that match key names, executing a specially crafted command that refers to a variadic list of key names. The vulnerability is patched in Redis 7.0.12.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+### AP-03: Mass Client-Side Attack via SiteSync
+**Impact:** Compromise of end-user accounts (Session Hijacking).  
+**Likelihood:** Medium  
 
-#### CVE-2022-24834 (CVSS: 7.0)
-- **Summary:** Redis is an in-memory database that persists on disk. A specially crafted Lua script executing in Redis can trigger a heap overflow in the cjson library, and result with heap corruption and potentially remote code execution. The problem exists in all versions of Redis with Lua scripting support, starting from 2.6, and affects only authenticated and authorized users. The problem is fixed in versions 7.0.12, 6.2.13, and 6.0.20.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+1.  **Spyware Infection:** Attacker infects Content Author Computer, capturing Staging CMS session cookies (Ref: **T-003**).
+2.  **XSS Injection:** Attacker logs into Staging and saves a Stored XSS payload in a global footer (Ref: **T-010**).
+3.  **Propagation:** SiteSync process replicates the malicious footer from Staging to Production (Ref: **W-004**).
+4.  **Exploitation:** Valid users visit Production; the XSS payload executes, sending their cookies to the attacker.
 
-#### CVE-2023-41056 (CVSS: 8.1)
-- **Summary:** Redis is an in-memory database that persists on disk. Redis incorrectly handles resizing of memory buffers which can result in integer overflow that leads to heap overflow and potential remote code execution. This issue has been patched in version 7.0.15 and 7.2.4.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+---
 
-#### CVE-2024-31449 (CVSS: 7.0)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. An authenticated user may use a specially crafted Lua script to trigger a stack buffer overflow in the bit library, which may potentially lead to remote code execution. The problem exists in all versions of Redis with Lua scripting. This problem has been fixed in Redis versions 6.2.16, 7.2.6, and 7.4.1. Users are advised to upgrade. There are no known workarounds for this vulnerability.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+## 8. Component Security Profiles
 
-#### CVE-2025-32023 (CVSS: 7.0)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. From 2.8 to before 8.0.3, 7.4.5, 7.2.10, and 6.2.19, an authenticated user may use a specially crafted string to trigger a stack/heap out of bounds write on hyperloglog operations, potentially leading to remote code execution. The bug likely affects all Redis versions with hyperloglog operations implemented. This vulnerability is fixed in 8.0.3, 7.4.5, 7.2.10, and 6.2.19. An additional workaround to mitigate the problem without patching the redis-server executable is to prevent users from executing hyperloglog operations. This can be done using ACL to restrict HLL commands.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+### 8.1 Production Environment
+*   **Role:** Serve live application and content to end-users.
+*   **Risk:** **Critical**
+*   **Top Threats:**
+    *   T-008 (SiteSync MitM)
+    *   T-009 (Spoofing Staging)
+    *   T-010 (Replicated XSS)
+*   **Prioritized Mitigations:**
+    1.  Deploy a Web Application Firewall (WAF).
+    2.  Implement mTLS for the inbound SiteSync connection.
+    3.  Disable direct SSH access; use immutable infrastructure patterns.
 
-#### CVE-2025-46817 (CVSS: 7.0)
-- **Summary:** Redis is an open source, in-memory database that persists on disk. Versions 8.2.1 and below allow an authenticated user to use a specially crafted Lua script to cause an integer overflow and potentially lead to remote code execution The problem exists in all versions of Redis with Lua scripting. This issue is fixed in version 8.2.2.
-- **Severity:** HIGH
-- **Affected Component:** Redis Cache
+### 8.2 Automated Deployment Infrastructure (CI/CD)
+*   **Role:** Build code and orchestrate deployments to all environments.
+*   **Risk:** **Critical**
+*   **Top Threats:**
+    *   T-004 (Pipeline Configuration Tampering)
+    *   T-006 (Container Escape/Privilege Escalation)
+    *   T-014 (Supply Chain Attacks)
+*   **Prioritized Mitigations:**
+    1.  Isolate build agents in unprivileged, ephemeral containers.
+    2.  Implement dependency scanning (SCA) and artifact signing.
+    3.  Externalize secrets to a Vault; never store in plain text or logs.
 
-## 6. Attack Surface Analysis
-The following entry points and interfaces represent the primary attack surface:
-- **Public Interfaces:** Web Servers, API Gateways (Inferred from architecture)
-- **Network Boundaries:** Internet Boundary, Internal Network
+### 8.3 Developer Computer
+*   **Role:** Source code creation and version control management.
+*   **Risk:** **High**
+*   **Top Threats:**
+    *   T-001 (Code Tampering)
+    *   T-002 (Identity Spoofing)
+*   **Prioritized Mitigations:**
+    1.  Enforce MFA and Hardware Keys (YubiKey) for git operations.
+    2.  Mandatory Code Review gates (no direct pushes to main).
+    3.  Endpoint Detection and Response (EDR) installation.
 
-## 7. Risk Assessment
-Risk is calculated as **Likelihood x Impact**.
-| Threat/CVE | Likelihood | Impact | Risk Level |
-|---|---|---|---|
-| T-WEB-01 | Medium | High | High |
-| T-WEB-02 | Medium | High | High |
-| T-NET-01 | Medium | High | High |
-| CVE-2021-23017 | High | HIGH | HIGH |
-| CVE-2022-41741 | High | HIGH | HIGH |
-| CVE-2022-41742 | High | HIGH | HIGH |
-| CVE-2021-29477 | High | HIGH | HIGH |
-| CVE-2021-29478 | High | HIGH | HIGH |
-| CVE-2021-32625 | High | HIGH | HIGH |
-| CVE-2021-32761 | High | HIGH | HIGH |
-| CVE-2020-21468 | High | HIGH | HIGH |
-| CVE-2021-32626 | High | HIGH | HIGH |
-| CVE-2021-32627 | High | HIGH | HIGH |
-| CVE-2021-32628 | High | HIGH | HIGH |
-| CVE-2021-32675 | High | HIGH | HIGH |
-| CVE-2021-32687 | High | HIGH | HIGH |
-| CVE-2021-32762 | High | HIGH | HIGH |
-| CVE-2021-41099 | High | HIGH | HIGH |
-| CVE-2022-33105 | High | HIGH | HIGH |
-| CVE-2022-31144 | High | HIGH | HIGH |
-| CVE-2023-31655 | High | HIGH | HIGH |
-| CVE-2023-36824 | High | HIGH | HIGH |
-| CVE-2022-24834 | High | HIGH | HIGH |
-| CVE-2023-41056 | High | HIGH | HIGH |
-| CVE-2024-31449 | High | HIGH | HIGH |
-| CVE-2025-32023 | High | HIGH | HIGH |
-| CVE-2025-46817 | High | HIGH | HIGH |
+---
 
-## 8. Recommended Hardening Checklist (NIST 800-53)
-### Mitigation for Update nginx web server to the latest version to resolve CVE-2021-23017.
-**NIST Controls:** SI-2, AC-6, SI-3, SC-20, SC-7, RA-5
-**Configuration:**
-- [ ] Restrict the 'resolver' directive to trusted internal DNS servers only.
-- [ ] Implement WAF rules (e.g., ModSecurity) to block malicious payloads.
-- [ ] Ensure Nginx worker processes run as a non-privileged user.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
+## 9. NIST 800-53 Rev5 Control Mapping
 
-### Mitigation for Update nginx web server to the latest version to resolve CVE-2022-41741.
-**NIST Controls:** SI-2, CM-7, AC-6, SI-3, AC-3, RA-5
-**Configuration:**
-- [ ] Apply OS-level hardening (e.g., SELinux/AppArmor).
-- [ ] Implement WAF rules (e.g., ModSecurity) to block malicious payloads.
-- [ ] Disable the 'ngx_http_mp4_module' if video streaming is not required.
-- [ ] Ensure Nginx worker processes run as a non-privileged user.
-**Access Control:**
-- [ ] Ensure strict access controls are in place on the host machine (limit local users).
+| Threat ID | Threat Summary | NIST Control | Control Description |
+| :--- | :--- | :--- | :--- |
+| **T-001** | **Malicious Code Injection** | **SI-7** | **Software, Firmware, and Information Integrity:** Employ integrity verification tools (commit signing) to detect unauthorized changes. |
+| | | **CM-5** | **Access Restrictions for Change:** Define and enforce privileges for code submission (Pull Requests). |
+| **T-004** | **Pipeline Tampering** | **CM-3** | **Configuration Change Control:** Systematically manage changes to the CI/CD pipeline configurations. |
+| | | **CM-2** | **Baseline Configuration:** Maintain a baseline of the build environment and prevent unauthorized deviation. |
+| **T-006** | **Container Escape** | **AC-6** | **Least Privilege:** Ensure build agents run with the most restrictive set of privileges (non-root). |
+| | | **SC-39** | **Process Isolation:** Implement containerization that effectively isolates build processes from the host kernel. |
+| **T-014** | **Supply Chain Attack** | **SR-3** | **Supply Chain Risk Management Controls:** Employ controls to protect against supply chain risks (SCA tools). |
+| | | **SA-4** | **Acquisition Security:** Screen and vet third-party libraries and external components. |
+| **T-005** | **Secret Exposure** | **IA-5** | **Authenticator Management:** Protect authenticators (secrets) from unauthorized disclosure (masking/vaulting). |
 
-### Mitigation for Update nginx web server to the latest version to resolve CVE-2022-41742.
-**NIST Controls:** SI-2, CM-7, AC-6, SI-3, AC-3, RA-5
-**Configuration:**
-- [ ] Apply OS-level hardening (e.g., SELinux/AppArmor).
-- [ ] Implement WAF rules (e.g., ModSecurity) to block malicious payloads.
-- [ ] Disable the 'ngx_http_mp4_module' if video streaming is not required.
-- [ ] Ensure Nginx worker processes run as a non-privileged user.
-**Access Control:**
-- [ ] Ensure strict access controls are in place on the host machine (limit local users).
+---
 
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-29477.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
+## 10. Hardening Plan
 
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-29478.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, CM-6, RA-5, SC-7
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Disable the 'CONFIG' command for unprivileged users via ACLs.
-- [ ] Implement network segmentation to isolate this component.
-- [ ] Prevent modification of 'set-max-intset-entries' via ACL.
+### 10.1 Quick Wins (Immediate - < 1 Day)
+*   **Secret Rotation:** Immediately rotate any credentials potentially exposed in previous build logs (T-005).
+*   **Disable Debug Mode:** Ensure Staging environment has `debug=false` (T-013).
+*   **MFA Enforcement:** Enable MFA for all Source Control and CMS users (T-002, T-003).
+*   **Review Permissions:** Remove write access to the `main` branch for individual developers; enforce Pull Requests (T-001).
 
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-32625.
-**NIST Controls:** SI-2, SC-8, AC-3, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Restrict 'proto-max-bulk-len' to a safe limit (e.g., 512MB) in redis.conf.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
+### 10.2 Short-Term (1 - 4 Weeks)
+*   **Network Allow-listing:** Restrict access to the CMS and SiteSync endpoints to known corporate IPs or VPN subnets (T-009).
+*   **CI/CD Hardening:** Migrate build agents to run as non-root users and remove Docker socket mounts (T-006).
+*   **SCA Implementation:** Integrate a Software Composition Analysis tool into the pipeline to block malicious dependencies (T-014).
+*   **WAF Deployment:** Deploy a WAF in front of Production to mitigate XSS and other web attacks (W-002).
 
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-32761.
-**NIST Controls:** SI-2, SC-8, AC-3, CM-6, RA-5, SC-7
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Restrict 'proto-max-bulk-len' to a safe limit (e.g., 512MB) in redis.conf.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Disable the 'CONFIG' command for unprivileged users via ACLs.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2020-21468.
-**NIST Controls:** SI-2, SC-8, AC-3, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-32626.
-**NIST Controls:** SI-2, CM-7, SC-8, AC-3, SI-16, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Restrict access to 'EVAL' and 'EVALSHA' commands using Redis ACLs.
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-32627.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, CM-6, RA-5, SC-7
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Restrict 'proto-max-bulk-len' to a safe limit (e.g., 512MB) in redis.conf.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Disable the 'CONFIG' command for unprivileged users via ACLs.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-32628.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, CM-6, RA-5, SC-7
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Prevent modification of ziplist configuration parameters via ACL.
-- [ ] Disable the 'CONFIG' command for unprivileged users via ACLs.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-32675.
-**NIST Controls:** SI-2, SC-5, SC-8, AC-3, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Configure connection limits and timeouts.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-32687.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, CM-6, RA-5, SC-7
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Disable the 'CONFIG' command for unprivileged users via ACLs.
-- [ ] Implement network segmentation to isolate this component.
-- [ ] Prevent modification of 'set-max-intset-entries' via ACL.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-32762.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2021-41099.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, CM-6, RA-5, SC-7
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Restrict 'proto-max-bulk-len' to a safe limit (e.g., 512MB) in redis.conf.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Disable the 'CONFIG' command for unprivileged users via ACLs.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2022-33105.
-**NIST Controls:** SI-2, SC-8, AC-3, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2022-31144.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Apply OS-level hardening (e.g., SELinux/AppArmor).
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure strict access controls are in place on the host machine (limit local users).
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2023-31655.
-**NIST Controls:** SI-2, SC-8, AC-3, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2023-36824.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Apply OS-level hardening (e.g., SELinux/AppArmor).
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure strict access controls are in place on the host machine (limit local users).
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2022-24834.
-**NIST Controls:** SI-2, CM-7, SC-8, AC-3, SI-16, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Apply OS-level hardening (e.g., SELinux/AppArmor).
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Restrict access to 'EVAL' and 'EVALSHA' commands using Redis ACLs.
-- [ ] Ensure strict access controls are in place on the host machine (limit local users).
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2023-41056.
-**NIST Controls:** SI-2, SC-8, AC-3, SI-16, SC-7, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Ensure the service is protected by a firewall and not exposed unnecessarily to the public internet.
-- [ ] Implement network segmentation to isolate this component.
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2024-31449.
-**NIST Controls:** SI-2, CM-7, SC-8, AC-3, SI-10, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Apply OS-level hardening (e.g., SELinux/AppArmor).
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Restrict access to 'EVAL' and 'EVALSHA' commands using Redis ACLs.
-- [ ] Ensure strict access controls are in place on the host machine (limit local users).
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2025-32023.
-**NIST Controls:** SC-8, SI-2, RA-5, AC-3
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Apply OS-level hardening (e.g., SELinux/AppArmor).
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Restrict HyperLogLog commands if not used.
-- [ ] Ensure strict access controls are in place on the host machine (limit local users).
-
-### Mitigation for Update redis cache to the latest version to resolve CVE-2025-46817.
-**NIST Controls:** SI-2, CM-7, SC-8, AC-3, SI-16, RA-5
-**Configuration:**
-- [ ] Ensure 'protected-mode' is set to 'yes'.
-- [ ] Apply OS-level hardening (e.g., SELinux/AppArmor).
-- [ ] Enable TLS and require client certificate authentication.
-- [ ] Bind Redis to localhost (127.0.0.1) if remote access is not strictly required.
-**Access Control:**
-- [ ] Restrict access to 'EVAL' and 'EVALSHA' commands using Redis ACLs.
-- [ ] Ensure strict access controls are in place on the host machine (limit local users).
-
-## 9. Residual Risk Notes
-- **Zero-Day Attacks:** This model cannot account for unknown vulnerabilities.
-- **Implementation Flaws:** Secure design does not guarantee secure implementation.
-- **Third-Party Risk:** Dependencies may introduce risks not covered here.
-
-## 10. Conclusion
-The system architecture exhibits a mix of standard architectural risks and specific component vulnerabilities. 
-Immediate priority should be given to patching high-severity CVEs and implementing the NIST-mapped controls outlined in Section 8.
+### 10.3 Long-Term (1 - 3 Months)
+*   **Zero Trust Architecture:** Implement ZTNA for access to Staging, Development, and CI/CD interfaces, removing reliance on VPNs (W-006).
+*   **Artifact Signing:** Implement a full chain of custody where artifacts are signed at build time and verified by the admission controller in Production (W-003).
+*   **Centralized Secrets Management:** Deploy HashiCorp Vault or AWS Secrets Manager to inject secrets dynamically, removing all static keys from config files (W-005).
+*   **Immutable Infrastructure:** Re-architect Production deployment to replace servers rather than updating them, preventing configuration drift (T-011).

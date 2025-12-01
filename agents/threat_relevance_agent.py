@@ -1,53 +1,141 @@
 """
 ThreatRelevanceAgent
-Filters and matches threats and CVEs to the actual system architecture.
+Filters and matches threats and CVEs to the actual system architecture using LLM-based reasoning.
 """
+import os
 from typing import List, Dict, Any
-from tools.models import ArchitecturalThreat
+from google import genai
+from google.genai import types
+from tenacity import retry, stop_after_attempt, wait_exponential
+from pydantic import BaseModel
+from tools.models import ArchitecturalThreat, ThreatRecord, ArchitectureSchema
+
+class CVERelevanceAssessment(BaseModel):
+    cve_id: str
+    relevance_status: str
+    justification: str
+    prerequisites: str = None
+    exploitability: str = None
+    likelihood: str = None
+
+class ThreatRelevanceOutput(BaseModel):
+    assessments: List[CVERelevanceAssessment]
+
+THREAT_RELEVANCE_INSTRUCTION = """
+You are a Vulnerability Intelligence Analyst.
+Your job is to analyze a list of raw CVEs against a specific system architecture and determine their relevance.
+
+RULES:
+1. **Relevance Scoring:** For each CVE, determine if it is RELEVANT (High/Medium/Low) or IRRELEVANT.
+   - **High:** Direct match, default config, remote exploit.
+   - **Medium:** Requires specific module/config, or authentication.
+   - **Low:** Unlikely version, complex prerequisites.
+   - **Irrelevant:** Component not present, OS mismatch, or specific excluded configuration.
+
+2. **Detailed Analysis:** For every relevant CVE, you MUST populate:
+   - `relevance_status`: High/Medium/Low
+   - `prerequisites`: e.g., "Requires authenticated user", "Requires ngx_http_mp4_module".
+   - `exploitability`: e.g., "Remote Code Execution", "Local DoS".
+   - `likelihood`: e.g., "High - Default config exposes this", "Low - Requires rare module".
+   - `justification`: A short explanation of why this CVE matters to THIS architecture.
+
+3. **Filtering:** discard any CVEs deemed "Irrelevant".
+
+4. **Output:** Return a JSON object with a list of `assessments`.
+"""
+
+class SimpleAgent:
+    def __init__(self, model_name, instruction, config=None):
+        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model_name = model_name
+        self.instruction = instruction
+        self.config = config
+
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def generate_content(self, prompt):
+        config = self.config
+        if config is None:
+            config = types.GenerateContentConfig()
+        
+        if not config.system_instruction:
+            config.system_instruction = self.instruction
+            
+        return self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=config
+        )
 
 class ThreatRelevanceAgent:
     """
-    Matches generic threats and CVEs to the system, filtering out irrelevant ones.
-    Output: list of relevant threats and CVEs with scores.
+    Matches generic threats and CVEs to the system, filtering out irrelevant ones using LLM.
     """
-    def match_relevant_threats(self, inferred_components: List[Dict[str, Any]], generic_threats: List[ArchitecturalThreat], cve_threats: List[Any]) -> Dict[str, Any]:
-        # Build mappings of category -> list of component names for CVE matching
-        category_to_components: Dict[str, List[str]] = {}
-        for comp in inferred_components:
-            name = comp.get("component_name")
-            for cat in comp.get("inferred_product_categories", []):
-                category_to_components.setdefault(cat, []).append(name)
+    def __init__(self, model_name: str = 'gemini-3-pro-preview'):
+        self.agent = SimpleAgent(
+            model_name=model_name,
+            instruction=THREAT_RELEVANCE_INSTRUCTION,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ThreatRelevanceOutput,
+            )
+        )
 
-        # Generic threats are already generated per-component by ThreatKnowledgeAgent
-        # We just pass them through, potentially we could filter by severity here if needed.
-        relevant_threats = generic_threats
+    def match_relevant_threats(self, inferred_components: List[Dict[str, Any]], generic_threats: Dict[str, Any], cve_threats: List[Any]) -> Dict[str, Any]:
+        # generic_threats is now a dict with 'threats' and 'weaknesses' from ThreatKnowledgeAgent
+        
+        # Prepare simplified CVEs for analysis to save tokens and improve robustness
+        simplified_cves = []
+        cve_map = {} # Map ID to original object
+        for c in cve_threats:
+            cve_map[c.cve_id] = c
+            simplified_cves.append({
+                "cve_id": c.cve_id,
+                "description": c.summary, # Changed from description to summary
+                "affected_products": c.affected_products
+            })
+        
+        prompt = f"""
+        INFERRED COMPONENTS:
+        {inferred_components}
 
-        # Filter CVEs: ensure the CVE's affected_products maps to at least one identified component/product
+        RAW CVES (Potential Matches):
+        {simplified_cves}
+
+        TASK: Filter and score these CVEs based on the component context.
+        """
+
         relevant_cves = []
-        for cve in cve_threats:
-            try:
-                prod_field = getattr(cve, "affected_products", None)
-                prod_text = str(prod_field).lower() if prod_field else ""
-
-                # Match CVE to identified products or categories
-                matched_components = []
-                for cat, comps in category_to_components.items():
-                    # Simple heuristic: if category name is in CVE product text
-                    if cat.lower() in prod_text:
-                        matched_components.extend(comps)
-
-                # If the CVE text mentions any identified product string more precisely, include it
-                if matched_components:
-                    # Score: base 1.0, bump for production exposure if any component name contains 'production' or 'prod'
-                    score = 1.0
-                    if any('prod' in (c.lower() or '') for c in matched_components):
-                        score = 1.2
-                    relevant_cves.append({"cve": cve, "score": score, "affected_components": list(set(matched_components))})
-
-            except Exception:
-                continue
+        try:
+            response = self.agent.generate_content(prompt)
+            import json
+            data = json.loads(response.text)
+            
+            # Parse the output
+            output = ThreatRelevanceOutput(**data)
+            
+            for assessment in output.assessments:
+                if assessment.cve_id in cve_map:
+                    original_cve = cve_map[assessment.cve_id]
+                    # Update the original CVE with the assessment details
+                    original_cve.relevance_status = assessment.relevance_status
+                    original_cve.justification = assessment.justification
+                    original_cve.prerequisites = assessment.prerequisites
+                    original_cve.exploitability = assessment.exploitability
+                    original_cve.likelihood = assessment.likelihood
+                    
+                    relevant_cves.append({
+                        "cve": original_cve,
+                        "score": 1.0, # Placeholder
+                        "affected_components": [original_cve.affected_products]
+                    })
+                
+        except Exception as e:
+            print(f"Error filtering CVEs: {e}")
+            # Fallback: return empty list on error
+            relevant_cves = []
 
         return {
-            "relevant_threats": relevant_threats,
+            "relevant_threats": generic_threats.get("threats", []),
+            "relevant_weaknesses": generic_threats.get("weaknesses", []),
             "relevant_cves": relevant_cves
         }

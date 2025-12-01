@@ -90,13 +90,26 @@ def main(image_path: str = None, json_input: str = None):
     from agents.threat_relevance_agent import ThreatRelevanceAgent
     relevance_agent = ThreatRelevanceAgent()
     match_results = relevance_agent.match_relevant_threats(inferred_components, generic_threats, cve_threats)
-    print(f"   -> {len(match_results['relevant_threats'])} relevant architectural threats, {len(match_results['relevant_cves'])} relevant CVEs.")
+    print(f"   -> {len(match_results['relevant_threats'])} relevant architectural threats.")
+    print(f"   -> {len(match_results.get('relevant_weaknesses', []))} architectural weaknesses.")
+    print(f"   -> {len(match_results['relevant_cves'])} relevant CVEs.")
 
-    # 6. Report Synthesizer Agent: Generate final report
+    # 6. Attack Path Agent: Simulate attack paths
+    from agents.attack_path_agent import AttackPathAgent
+    attack_agent = AttackPathAgent()
+    print("   -> Simulating attack paths...")
+    attack_paths = attack_agent.generate_attack_paths(
+        architecture_data, 
+        match_results['relevant_threats'], 
+        match_results['relevant_cves']
+    )
+    print(f"   -> Generated {len(attack_paths)} attack paths.")
+
+    # 7. Report Synthesizer Agent: Generate final report
     from agents.report_synthesizer_agent import ReportSynthesizerAgent
     report_agent = ReportSynthesizerAgent()
     # Updated to pass architecture_data for full context
-    final_report = report_agent.synthesize_report(match_results, architecture_data)
+    final_report = report_agent.synthesize_report(match_results, architecture_data, attack_paths)
 
     # Generate Markdown Report
     markdown_report = report_agent.generate_markdown_report(final_report)
@@ -114,6 +127,7 @@ def main(image_path: str = None, json_input: str = None):
     print("🔥 Threat Summary")
     print("-" * 30)
     print(f"Architectural Threats: {len(final_report['threats'])}")
+    print(f"Architectural Weaknesses: {len(final_report.get('weaknesses', []))}")
     print(f"Specific CVEs: {len(final_report['cves'])}")
     
     print("\n" + "-" * 30)

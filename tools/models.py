@@ -29,8 +29,23 @@ class ThreatRecord(BaseModel):
     references: List[str] = Field(default_factory=list, description="List of vendor advisory URLs.")
     mitigation: Optional[MitigationStrategy] = Field(default=None, description="Detailed mitigation strategy.")
 
+    # New fields for detailed analysis
+    relevance_status: Optional[str] = Field(default="Unknown", description="High/Medium/Low/Irrelevant based on architecture.")
+    prerequisites: Optional[str] = Field(default=None, description="Auth required, module needed, etc.")
+    exploitability: Optional[str] = Field(default=None, description="Remote, local, privileged, etc.")
+    likelihood: Optional[str] = Field(default=None, description="Likelihood given the architecture.")
+    justification: Optional[str] = Field(default=None, description="Reasoning for the relevance score.")
+
 # Alias for backward compatibility with agents expecting 'CVE'
 CVE = ThreatRecord
+
+class ArchitecturalWeakness(BaseModel):
+    """A missing control or architectural flaw."""
+    weakness_id: str = Field(description="Unique ID (e.g., W-001).")
+    title: str = Field(description="Title of the weakness.")
+    description: str = Field(description="Detailed description of the missing control or weakness.")
+    impact: str = Field(description="Potential impact.")
+    mitigation: str = Field(description="Recommended mitigation.")
 
 class ArchitecturalThreat(BaseModel):
     """A generic STRIDE-based threat derived from architecture analysis."""
@@ -42,6 +57,10 @@ class ArchitecturalThreat(BaseModel):
     trust_boundary: Optional[str] = Field(default=None, description="The trust boundary crossed (if any).")
     severity: str = Field(description="Qualitative severity (High, Medium, Low).")
     mitigation_steps: List[str] = Field(default_factory=list, description="High-level mitigation steps.")
+    preconditions: List[str] = Field(default_factory=list, description="Conditions required for the threat to be realized.")
+    impact: Optional[str] = Field(default=None, description="Potential impact of the threat.")
+    example: Optional[str] = Field(default=None, description="Real-world example of this threat.")
+    cwe_id: Optional[str] = Field(default=None, description="Related CWE ID (e.g., CWE-79).")
 
 class ThreatSearchResults(BaseModel):
     """Container for multiple threat records."""
@@ -80,6 +99,20 @@ class RiskAssessmentReport(BaseModel):
     severity_score: str = Field(description="The qualitative risk score based on CVSS and KEV status (CRITICAL, HIGH, MEDIUM, LOW).")
     mitigation_suggestion: str = Field(description="A clear, immediate action item to mitigate this specific threat.")
 
+class AttackStep(BaseModel):
+    step_id: int = Field(description="Step number in the attack path.")
+    description: str = Field(description="Description of the attack step.")
+    technique: str = Field(description="The technique used (e.g., 'Exploit CVE-2021-32625', 'Brute Force').")
+    target_component: str = Field(description="The component targeted in this step.")
+
+class AttackPath(BaseModel):
+    path_id: str = Field(description="Unique ID for the attack path (e.g., AP-01).")
+    title: str = Field(description="Short title of the attack path.")
+    steps: List[AttackStep] = Field(description="Ordered list of steps in the attack path.")
+    impact: str = Field(description="Potential impact if this path is successfully executed.")
+    likelihood: str = Field(description="Likelihood of this path being exploited (High, Medium, Low).")
+
 class FinalReport(BaseModel):
     """Container for the complete list of assessed threats."""
     assessed_threats: List[RiskAssessmentReport] = Field(description="A complete list of structured risk assessment records.")
+    attack_paths: List[AttackPath] = Field(default_factory=list, description="Simulated attack paths.")

@@ -58,7 +58,7 @@ def process_architecture_diagram(tool_context: ToolContext, image_path: str) -> 
         # 4. Call the Vision model with structured output configuration
         response = _generate_content_with_retry(
             client,
-            model='gemini-2.0-flash', # Use a multimodal model
+            model='gemini-3-pro-image-preview', # Use a multimodal model
             contents=[prompt, image_part],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
