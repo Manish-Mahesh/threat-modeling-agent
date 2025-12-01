@@ -66,7 +66,9 @@ def main(image_path: str = None, json_input: str = None):
     # 2. Component Understanding Agent: Infer real technologies
     from agents.component_understanding_agent import ComponentUnderstandingAgent
     comp_agent = ComponentUnderstandingAgent()
-    inferred_components = comp_agent.infer_components(architecture_data.components)
+    # Extract component names for inference
+    component_names = [c.name for c in architecture_data.components]
+    inferred_components = comp_agent.infer_components(component_names)
     print("   -> Inferred component technologies:")
     for comp in inferred_components:
         print(f"      {comp['component_name']}: {comp['inferred_product_categories']} (confidence={comp['confidence']})")
@@ -74,7 +76,8 @@ def main(image_path: str = None, json_input: str = None):
     # 3. Threat Knowledge Agent: Generate generic threats
     from agents.threat_knowledge_agent import ThreatKnowledgeAgent
     threat_agent = ThreatKnowledgeAgent()
-    generic_threats = threat_agent.generate_threats(inferred_components)
+    # Updated to pass architecture_data for STRIDE analysis
+    generic_threats = threat_agent.generate_threats(inferred_components, architecture_data)
     print(f"   -> Generated {len(generic_threats)} generic architectural threats.")
 
     # 4. CVE Discovery Agent: Query NVD/CISA for relevant product types
@@ -92,7 +95,8 @@ def main(image_path: str = None, json_input: str = None):
     # 6. Report Synthesizer Agent: Generate final report
     from agents.report_synthesizer_agent import ReportSynthesizerAgent
     report_agent = ReportSynthesizerAgent()
-    final_report = report_agent.synthesize_report(match_results)
+    # Updated to pass architecture_data for full context
+    final_report = report_agent.synthesize_report(match_results, architecture_data)
 
     # Generate Markdown Report
     markdown_report = report_agent.generate_markdown_report(final_report)
@@ -107,34 +111,27 @@ def main(image_path: str = None, json_input: str = None):
     print(final_report["executive_summary"])
     
     print("\n" + "-" * 30)
-    print("🌍 High-level Threat Landscape")
+    print("🔥 Threat Summary")
     print("-" * 30)
-    unique_landscape = sorted(list(set(final_report["threat_landscape"])))
-    print(", ".join(unique_landscape))
-
+    print(f"Architectural Threats: {len(final_report['threats'])}")
+    print(f"Specific CVEs: {len(final_report['cves'])}")
+    
     print("\n" + "-" * 30)
-    print("🔥 Detailed Threat List")
+    print("🛡️ Recommended Hardening (NIST 800-53)")
     print("-" * 30)
     
-    # Group generic threats by component type
-    print("\n--- Generic Architectural Threats ---")
-    for item in final_report["detailed_threat_list"]:
-        if "component_type" in item:
-            print(f"\n📌 {item['component_type'].upper()}")
-            for t in item['threats']:
-                print(f"  - {t}")
-                
-    print("\n--- Specific Vulnerabilities (CVEs) ---")
-    for item in final_report["detailed_threat_list"]:
-        if "cve_id" in item:
-            print(f"\n🔴 {item['cve_id']} (Severity: {item['severity']}, Score: {item['score']})")
-            print(f"   Summary: {item['summary']}")
-
-    print("\n" + "-" * 30)
-    print("🛡️ Prioritized Mitigations")
-    print("-" * 30)
-    for mit in final_report["prioritized_mitigations"]:
-        print(f"✅ [{mit['cve_id']}] {mit['mitigation']}")
+    # Simple preview of mitigations
+    count = 0
+    for item in final_report["cves"]:
+        mit = item["cve"].mitigation
+        if mit and count < 5:
+            print(f"✅ {mit.primary_fix}")
+            if mit.nist_controls:
+                print(f"   (Controls: {', '.join(mit.nist_controls)})")
+            count += 1
+    if count == 0:
+        print("No specific mitigations generated.")
+        
     print("=" * 50)
 
 

@@ -4,6 +4,15 @@ from typing import List, Optional
 # --- Schema for Threat Research Agent Output ---
 # This defines the structured data the Threat Research Agent must return to the Risk Assessment Agent.
 
+class MitigationStrategy(BaseModel):
+    """Structured mitigation guidance."""
+    primary_fix: str = Field(description="The main action to take (e.g., Upgrade to version X).")
+    configuration_changes: List[str] = Field(default_factory=list, description="Recommended configuration hardening.")
+    access_control_changes: List[str] = Field(default_factory=list, description="IAM or network access control changes.")
+    monitoring_actions: List[str] = Field(default_factory=list, description="What to log or monitor to detect exploitation.")
+    nist_controls: List[str] = Field(default_factory=list, description="Relevant NIST 800-53 controls (e.g., 'SI-2', 'AC-3').")
+    additional_notes: List[str] = Field(default_factory=list, description="Other context or workarounds.")
+
 class ThreatRecord(BaseModel):
     """A single structured vulnerability record."""
     cve_id: str = Field(description="The unique identifier for the vulnerability (e.g., CVE-2023-12345).")
@@ -18,15 +27,21 @@ class ThreatRecord(BaseModel):
     cvss_score: Optional[float] = Field(default=0.0, description="The numerical CVSS base score.")
     cwe_id: Optional[str] = Field(default=None, description="The Common Weakness Enumeration ID (e.g., CWE-89).")
     references: List[str] = Field(default_factory=list, description="List of vendor advisory URLs.")
-    mitigation: Optional['MitigationStrategy'] = Field(default=None, description="Detailed mitigation strategy.")
+    mitigation: Optional[MitigationStrategy] = Field(default=None, description="Detailed mitigation strategy.")
 
-class MitigationStrategy(BaseModel):
-    """Structured mitigation guidance."""
-    primary_fix: str = Field(description="The main action to take (e.g., Upgrade to version X).")
-    configuration_changes: List[str] = Field(default_factory=list, description="Recommended configuration hardening.")
-    access_control_changes: List[str] = Field(default_factory=list, description="IAM or network access control changes.")
-    monitoring_actions: List[str] = Field(default_factory=list, description="What to log or monitor to detect exploitation.")
-    additional_notes: List[str] = Field(default_factory=list, description="Other context or workarounds.")
+# Alias for backward compatibility with agents expecting 'CVE'
+CVE = ThreatRecord
+
+class ArchitecturalThreat(BaseModel):
+    """A generic STRIDE-based threat derived from architecture analysis."""
+    threat_id: str = Field(description="Unique ID (e.g., T-001).")
+    category: str = Field(description="STRIDE category (e.g., Spoofing).")
+    description: str = Field(description="Description of the threat scenario.")
+    affected_component: str = Field(description="The component at risk.")
+    affected_asset: Optional[str] = Field(default=None, description="The asset (data/service) at risk.")
+    trust_boundary: Optional[str] = Field(default=None, description="The trust boundary crossed (if any).")
+    severity: str = Field(description="Qualitative severity (High, Medium, Low).")
+    mitigation_steps: List[str] = Field(default_factory=list, description="High-level mitigation steps.")
 
 class ThreatSearchResults(BaseModel):
     """Container for multiple threat records."""
@@ -36,10 +51,21 @@ class ThreatSearchResults(BaseModel):
 # --- Schema for Image Processor Tool Output (System Context) ---
 # This defines the structured data the DiagramProcessorTool must extract from the image.
 
+class Component(BaseModel):
+    name: str = Field(description="Name of the component (e.g., 'Primary Database').")
+    type: str = Field(description="Type of the component (e.g., 'Database', 'Web Server', 'Load Balancer').")
+
+class DataFlow(BaseModel):
+    source: str = Field(description="Source component name.")
+    destination: str = Field(description="Destination component name.")
+    protocol: str = Field(description="Communication protocol (e.g., 'HTTPS', 'SQL', 'TCP').")
+
 class ArchitectureSchema(BaseModel):
     """Schema for the structured architecture data extracted from a diagram."""
-    components: List[str] = Field(description="List of all software/infra components and versions (e.g., 'Django 4.2', 'AWS RDS Postgres').")
-    data_flow_narrative: str = Field(description="A concise narrative of how data moves between the main components.")
+    project_name: str = Field(default="Untitled Project", description="Name of the system or project.")
+    description: str = Field(default="No description provided.", description="High-level description of the system.")
+    components: List[Component] = Field(description="List of all software/infra components.")
+    data_flows: List[DataFlow] = Field(description="List of data flows between components.")
     trust_boundaries: List[str] = Field(description="List of security or network zones/boundaries identified.")
 
 

@@ -1,9 +1,23 @@
 {
+  "project_name": "E-Commerce Platform",
+  "description": "A simple e-commerce architecture with a web frontend and a caching layer.",
   "components": [
-    "Nginx Web Server",
-    "Redis Cache"
+    {
+      "name": "Nginx Web Server",
+      "type": "Web Server"
+    },
+    {
+      "name": "Redis Cache",
+      "type": "Cache"
+    }
   ],
-  "data_flow_narrative": "The Nginx Web Server handles incoming requests and performs cache lookups against the Redis Cache.",
+  "data_flows": [
+    {
+      "source": "Nginx Web Server",
+      "destination": "Redis Cache",
+      "protocol": "RESP"
+    }
+  ],
   "trust_boundaries": [
     "Internet Boundary",
     "Internal Network"
