@@ -108,6 +108,53 @@ graph TD
 
 ---
 
+## ☁️ Cloud Deployment (Vertex AI)
+
+The system is designed to be deployed as a **Vertex AI Reasoning Engine**, allowing it to be consumed as a scalable API service.
+
+### Deployment
+
+1.  **Configure Google Cloud Project:**
+    Ensure you have the Google Cloud SDK installed and authenticated.
+    ```bash
+    gcloud auth application-default login
+    gcloud config set project YOUR_PROJECT_ID
+    ```
+
+2.  **Set Deployment Variables:**
+    ```powershell
+    $env:GOOGLE_CLOUD_PROJECT="your-project-id"
+    $env:GCS_STAGING_BUCKET="gs://your-staging-bucket"
+    ```
+
+3.  **Deploy the Agent:**
+    Run the deployment script to package and upload the agent to Vertex AI.
+    ```bash
+    python deploy_agent.py
+    ```
+
+### Remote Usage
+
+Once deployed, you can interact with the agent remotely using the Python SDK:
+
+```python
+from vertexai.preview import reasoning_engines
+
+# Initialize the remote agent
+agent_id = "projects/YOUR_PROJECT/locations/us-central1/reasoningEngines/YOUR_AGENT_ID"
+remote_agent = reasoning_engines.ReasoningEngine(agent_id)
+
+# Query the agent
+response = remote_agent.query(input={
+    "project_name": "My Cloud App",
+    "components": [...]
+})
+
+print(response)
+```
+
+---
+
 ## 💻 Usage
 
 ### 1. Analyze an Architecture Diagram

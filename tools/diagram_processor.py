@@ -40,9 +40,17 @@ def process_architecture_diagram(tool_context: ToolContext, image_path: str) -> 
         client = genai.Client()
         
         # 2. Load the image file as a Part for the API call
-        with open(image_path, "rb") as f:
-            # We assume a common image type like PNG or JPEG
-            image_part = types.Part.from_bytes(data=f.read(), mime_type='image/png')
+        if image_path.startswith("gs://"):
+            # Handle GCS URI
+            image_part = types.Part.from_uri(
+                file_uri=image_path,
+                mime_type="image/png" # Assuming PNG for now, could be dynamic
+            )
+        else:
+            # Handle local file
+            with open(image_path, "rb") as f:
+                # We assume a common image type like PNG or JPEG
+                image_part = types.Part.from_bytes(data=f.read(), mime_type='image/png')
             
         # 3. Define the multimodal prompt
         prompt = f"""
