@@ -194,6 +194,23 @@ The tool will generate a file named **`threat_report.md`** in the root directory
 
 ---
 
+## 📄 Report Structure
+
+The generated **`threat_report.md`** is a comprehensive security document containing 10 detailed sections:
+
+1.  **Architecture Extraction**: A breakdown of all identified components, data flows, and trust boundaries extracted from the diagram.
+2.  **Component Inventory**: A table listing every component with its inferred technology type (e.g., "Nginx", "PostgreSQL") and criticality rating.
+3.  **STRIDE Threat Enumeration**: A detailed table of specific threats (Spoofing, Tampering, etc.) mapped to components, including **CWE IDs**, severity, and mitigations.
+4.  **Architectural Weaknesses**: High-level design flaws such as "Lack of Network Segmentation" or "Missing Audit Logging".
+5.  **CVE Discovery**: Real-world vulnerabilities (CVEs) found for the specific inferred technologies, filtered for relevance.
+6.  **Threat ↔ CVE Matrix**: A correlation matrix showing how specific CVEs amplify or enable broader architectural threats.
+7.  **Attack Path Simulations**: Narrative "kill chains" demonstrating how an attacker could chain multiple vulnerabilities to compromise the system.
+8.  **Component Security Profiles**: A summary of the risk posture for each individual component.
+9.  **NIST 800-53 Control Mapping**: Specific compliance controls mapped to the identified high-risk threats.
+10. **Hardening Plan**: A prioritized roadmap of mitigations, broken down into "Quick Wins", "Short-Term", and "Long-Term" actions.
+
+---
+
 ## 🧪 Sample Execution & Verification
 
 A sample architecture diagram (`data/test_arch4.png`) and a pre-generated report (`threat_report.md`) are included in the repository for verification purposes.
