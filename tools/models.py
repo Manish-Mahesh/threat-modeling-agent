@@ -61,6 +61,7 @@ class ArchitecturalThreat(BaseModel):
     impact: Optional[str] = Field(default=None, description="Potential impact of the threat.")
     example: Optional[str] = Field(default=None, description="Real-world example of this threat.")
     cwe_id: Optional[str] = Field(default=None, description="Related CWE ID (e.g., CWE-79).")
+    related_cve_id: Optional[str] = Field(default=None, description="Related CVE ID if this threat is derived from a specific vulnerability (e.g., CVE-2025-21187).")
 
 class ThreatSearchResults(BaseModel):
     """Container for multiple threat records."""

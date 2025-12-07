@@ -134,8 +134,52 @@ class ThreatRelevanceAgent:
             # Fallback: return empty list on error
             relevant_cves = []
 
+        # NEW: Promote Critical/High CVEs to Architectural Threats
+        final_threats = generic_threats.get("threats", [])
+        
+        # Find the highest existing Threat ID to continue numbering
+        max_id = 0
+        for t in final_threats:
+            try:
+                # Assuming format T-XXX
+                tid = int(t.threat_id.split('-')[1])
+                if tid > max_id:
+                    max_id = tid
+            except:
+                pass
+        
+        for item in relevant_cves:
+            cve = item['cve']
+            # Check if this is a high severity CVE that warrants a specific threat entry
+            # We check for "High" or "Critical" severity, or explicit "High" relevance
+            is_critical = False
+            if cve.severity and cve.severity.upper() in ["HIGH", "CRITICAL"]:
+                is_critical = True
+            if cve.relevance_status and cve.relevance_status.upper() == "HIGH":
+                is_critical = True
+                
+            if is_critical:
+                max_id += 1
+                new_threat_id = f"T-{max_id:03d}"
+                
+                # Create a new ArchitecturalThreat from the CVE
+                new_threat = ArchitecturalThreat(
+                    threat_id=new_threat_id,
+                    category="Elevation of Privilege" if "RCE" in str(cve.exploitability) or "Code Execution" in cve.summary else "Denial of Service", # Simple heuristic
+                    description=f"Exploitation of {cve.cve_id}: {cve.summary}",
+                    affected_component=cve.affected_products,
+                    severity="Critical" if cve.severity == "CRITICAL" else "High",
+                    mitigation_steps=[f"Apply security updates to resolve {cve.cve_id}."],
+                    preconditions=[cve.prerequisites or "Vulnerable version installed."],
+                    impact=cve.exploitability or "System Compromise",
+                    cwe_id=cve.cwe_id or "CWE-Unknown",
+                    related_cve_id=cve.cve_id
+                )
+                final_threats.append(new_threat)
+                print(f"   -> Promoted {cve.cve_id} to Architectural Threat {new_threat_id}")
+
         return {
-            "relevant_threats": generic_threats.get("threats", []),
+            "relevant_threats": final_threats,
             "relevant_weaknesses": generic_threats.get("weaknesses", []),
             "relevant_cves": relevant_cves
         }

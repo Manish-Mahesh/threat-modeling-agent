@@ -108,6 +108,7 @@ NEVER invent CVEs.
 | Threat ID | CVE | Relationship (Amplifies, Enables, Related Weakness) |
 
 Only populate if CVEs exist.
+Ensure that if a Threat ID is derived from a CVE (e.g., has a related_cve_id), it is listed here with a "Direct" relationship.
 
 ============================================================
 7. ATTACK PATH SIMULATIONS
