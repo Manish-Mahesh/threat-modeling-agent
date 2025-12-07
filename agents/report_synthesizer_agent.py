@@ -53,11 +53,15 @@ Criticality must be based on:
 ============================================================
 For each component AND each data flow, generate ONLY relevant STRIDE threats.
 
+Create a table with the following columns:
+| ID | STRIDE | CWE | Component | Description | Severity | Mitigations |
+
 Each threat must include:
 
 - ID: T-XXX  
 - STRIDE category  
-- CWE ID  
+- CWE ID (e.g., CWE-79). **CRITICAL:** You MUST populate this column. Use the `cwe_id` field from the input data. If missing, INFER the most accurate CWE based on the description.
+- Component Name
 - Description (very specific to THIS architecture)  
 - Preconditions  
 - Impact  

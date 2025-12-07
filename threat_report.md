@@ -1,118 +1,117 @@
 # Threat Model Report: Web Portal Architecture
 
-**Date:** 2025-12-01  
+**Date:** 2025-12-07  
 **Project:** Web Portal Architecture  
-**Architectural Style:** Layered Web Application (Django Backend + Backbone.js Frontend)
+**Description:** A layered system featuring a Backbone.js front-end and a Django/Piston back-end, interacting with external databases and a common server.
 
 ---
 
 ## 1. Architecture Extraction
 
-Based on the provided architecture definition and component analysis.
-
 ### 1.1 Components
-*   **Data Layer:** Database 1 (PostgreSQL), Database 2 (PostgreSQL)
-*   **Application Server:** Common Server (Nginx)
-*   **API/Backend:** REST API (Django + Piston App), Backend Model (Django), Backend View (Django), Backend Template (Django), Backend Router (urls.py), I18n (*.po)
-*   **Frontend (Client-Side):** Frontend Router (Backbone.js), Frontend View (Backbone.js), Frontend Model/Collection (Backbone.js), Frontend Event Handler (Backbone.js), Frontend Dependencies (REQUIRE.JS)
+*   Primary Database
+*   Secondary Database
+*   Common Server
+*   REST API (Django + Piston App)
+*   Backend Model
+*   Backend View
+*   Backend Template
+*   Backend Router (urls.py)
+*   I18n (*.po)
+*   Frontend Event Handler
+*   Frontend Model/Collection
+*   Frontend View
+*   Frontend Router
+*   REQUIRE.JS
 
 ### 1.2 Data Flows
-*   Database 1 ↔ Backend Model (Django) [TCP/IP]
-*   Database 2 ↔ Common Server [Unspecified DB Protocol]
-*   Common Server ↔ REST API (Django + Piston App) [HTTP/REST]
-*   REST API ↔ Backend Model (Django) [Invocation]
-*   Frontend Router ↔ Backend Router (urls.py) [JSON/HTTP]
-*   Backend Router ↔ REST API / Backend View [Invocation]
-*   Backend View ↔ Backend Template ↔ I18n [Invocation]
-*   Frontend Event Handler ↔ Frontend Model/View [Asynchronous Call]
-*   Frontend Router ↔ Frontend View [Invocation]
+1.  Primary Database → Backend Model (TCP/IP)
+2.  Secondary Database → Common Server (Unspecified)
+3.  Common Server → REST API (Django + Piston App) (HTTP/REST)
+4.  REST API (Django + Piston App) → Backend Model (Invocation)
+5.  Backend Model → Backend View (Invocation)
+6.  Backend View → Backend Model (Invocation)
+7.  Backend View → Backend Template (Invocation)
+8.  Backend Template → I18n (*.po) (Invocation)
+9.  Backend Router (urls.py) → Backend View (Invocation)
+10. Backend Router (urls.py) → Frontend Router (JSON/ *.MU)
+11. Frontend Router → Backend Router (urls.py) (JSON/ *.MU)
+12. Frontend Router → Frontend View (Invocation)
+13. Frontend View → Frontend Model/Collection (Invocation)
+14. Frontend Model/Collection → Frontend View (Invocation)
+15. Frontend Event Handler → Frontend Model/Collection (Asynchronous call)
+16. Frontend Event Handler → Frontend View (Asynchronous call)
+17. REST API (Django + Piston App) → Frontend Model/Collection (Implied HTTP/JSON)
 
 ### 1.3 Trust Boundaries
-*   **Internet Boundary:** Between Client (Frontend) and Common Server.
-*   **Web Portal Django App Container:** Encapsulates API, Backend Logic, and Configuration.
-*   **Web Portal BACKBONE.JS Container:** Client-side execution environment.
-*   **Data Access Layer:** Boundary surrounding Database 1 and Database 2.
-*   **Internal Logic Boundaries:** Business Logic, Flow Logic, Presentation Logic.
-
-**Assumptions:**
-1.  **PostgreSQL Usage:** Based on the CVEs provided in the input, `Database 1` and `Database 2` are assumed to be running PostgreSQL.
-2.  **Nginx Usage:** Based on the components and CVEs, the `Common Server` is identified as Nginx.
+*   DATA ACCESS LAYER
+*   BUSINESS LOGIC
+*   FLOW LOGIC
+*   PRESENTATION LOGIC
+*   FRONT-END
+*   Web Portal Django App (Backend Boundary)
+*   Web Portal BACKBONE.JS (Frontend Boundary)
 
 ---
 
-## 2. Component Inventory Table
+## 2. Component Inventory
 
 | Component | Type | Criticality | Notes |
 | :--- | :--- | :--- | :--- |
-| **Database 1 & 2** | Database | **Critical** | Stores core business data. Identified as PostgreSQL. Vulnerable to RCE via CVEs. |
-| **REST API (Piston)** | API Service | **Critical** | Main entry point. Uses deprecated framework (Piston) with known serialization risks. |
-| **Common Server** | App Server | **High** | Ingress point (Nginx). Handles routing to DB2 and API. Vulnerable to resolver attacks. |
-| **Backend Model** | App Component | **High** | Enforces business logic and interacts with DB. Vulnerable to Mass Assignment. |
-| **Backend Router** | App Component | **High** | Controls URL routing. Vulnerable to ACL bypass (CVE-2021-44420). |
-| **Frontend Components** | Client-side | **Medium** | Backbone.js logic. Susceptible to XSS and client-side logic bypass. |
-| **I18n (*.po)** | Config/Data | **Low** | Translation files. Potential information disclosure if exposed. |
+| **Primary Database** | Database | **Critical** | Stores core application data. Target for exfiltration. |
+| **Secondary Database** | Database | **High** | Connected to Common Server; potential pivot point. |
+| **REST API (Django + Piston)** | API | **Critical** | Main entry point; handles serialization/deserialization. High risk due to legacy framework. |
+| **Backend Model** | Model | **High** | Enforces business rules and interacts directly with the DB. |
+| **Frontend View** | View | **Medium** | Renders data in browser; primary vector for XSS. |
+| **Frontend Model/Collection** | Model | **Medium** | Handles client-side state; communicates with API. |
+| **REQUIRE.JS** | Dependency Manager | **Medium** | Loads external scripts; integrity risk. |
+| **Common Server** | Server | **High** | Infrastructure component hosting services. |
+| **I18n (*.po)** | Internationalization | **Low** | Handles translations; minor DoS risk. |
 
 ---
 
 ## 3. STRIDE Threat Enumeration
 
-| Threat ID | Category | CWE | Description | Severity | Mitigations |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **T-001** | Tampering | CWE-502 | **Unsafe Deserialization in Django Piston:** Piston supports YAML/Pickle. Attackers can send malicious payloads to the API triggering RCE. | **Critical** | 1. Migrate to Django REST Framework.<br>2. Disable YAML/Pickle serializers.<br>3. Enforce JSON-only inputs. |
-| **T-002** | Spoofing | CWE-352 | **CSRF via Backbone.js Sync:** Backbone interactions may lack CSRF tokens, allowing attackers to force state changes via authenticated users. | **High** | 1. Enforce Django CSRF middleware.<br>2. Append `X-CSRFToken` to Backbone.sync.<br>3. Use SameSite=Strict cookies. |
-| **T-003** | Tampering | CWE-915 | **Mass Assignment in Backend Model:** JSON inputs bound directly to models allow attackers to modify privileged fields (e.g., `is_superuser`). | **High** | 1. Use explicit field whitelisting (Forms/Serializers).<br>2. Avoid `**request.POST` updates.<br>3. Validate input schemas. |
-| **T-004** | Tampering | CWE-79 | **Stored XSS in Frontend View:** Backbone `.html()` rendering of unsanitized user data allows script execution in victim browsers. | **High** | 1. Use `.text()` rendering.<br>2. Context-aware encoding.<br>3. Implement strict CSP. |
-| **T-005** | Info Disclosure | CWE-530 | **Exposure of I18n Files:** Misconfigured Nginx serving `*.po` files reveals internal application logic and strings. | **Low** | 1. Deny access to `*.po`/`*.mo` in Nginx.<br>2. Move source files outside web root. |
-| **T-006** | DoS | CWE-770 | **Resource Exhaustion via Recursion:** Deeply nested object graph requests in Piston consume excessive server CPU/RAM. | **Medium** | 1. Limit serializer depth.<br>2. Enforce pagination.<br>3. Rate limit API endpoints. |
-| **T-007** | Tampering | CWE-494 | **Dependency Injection (Require.js):** Loading scripts from external sources without SRI allows MITM code injection. | **High** | 1. Implement Subresource Integrity (SRI).<br>2. Host critical libs locally.<br>3. Enforce HTTPS. |
-| **T-008** | Info Disclosure | CWE-209 | **Debug Mode Exposure:** If `DEBUG=True`, accessing `/admin` or errors reveals secrets and stack traces. | **High** | 1. Set `DEBUG=False`.<br>2. Restrict `/admin` by IP.<br>3. Prune unused URLs. |
-| **T-009** | Repudiation | CWE-778 | **Missing API Audit Logging:** Lack of persistent logs for state-changing API requests prevents incident tracing. | **Medium** | 1. Log all POST/PUT/DELETE requests.<br>2. Centralize logs.<br>3. Include User IDs in logs. |
-| **T-010** | Tampering | CWE-319 | **Unencrypted Database Traffic:** "Unspecified Protocol" to DB2 allows network sniffing of SQL/Data. | **High** | 1. Enforce TLS for DB connections.<br>2. Segment DB network.<br>3. Strong DB authentication. |
+| ID | STRIDE | CWE | Component | Description | Severity | Mitigations |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **T-001** | Tampering | **CWE-502** | REST API (Django + Piston) | **Insecure Deserialization via Piston:** An attacker sends a malicious payload (Pickle/YAML) which executes arbitrary code upon deserialization by the Django Piston framework. | **Critical** | 1. Migrate to Django REST Framework (DRF).<br>2. Disable Pickle/YAML serializers.<br>3. Enforce strict JSON-only content types. |
+| **T-002** | Spoofing | **CWE-79** | Frontend View | **DOM-based XSS in Backbone View:** Attacker injects malicious JS into user input which is rendered unescaped by the Frontend View into the DOM. | **High** | 1. Implement strict Content Security Policy (CSP).<br>2. Escape all data before rendering.<br>3. Avoid raw HTML injection methods. |
+| **T-003** | Info Disclosure | **CWE-200** | REST API (Django + Piston) | **Excessive Data Exposure:** API returns full model objects (including sensitive fields like passwords/keys) relying on the client to hide them. | **Medium** | 1. Use Data Transfer Objects (DTOs) or strict serializers.<br>2. Filter data server-side, not client-side. |
+| **T-004** | Tampering | **CWE-89** | Backend Model | **SQL Injection in ORM Bypass:** Filter parameters or raw SQL usage in Piston handlers allows attackers to manipulate database queries. | **High** | 1. Use Django ORM methods strictly.<br>2. Validate input types for all URL parameters.<br>3. Avoid `raw()` or `extra()` queries. |
+| **T-005** | Elevation of Privilege | **CWE-639** | REST API (Django + Piston) | **Insecure Direct Object Reference (IDOR):** Authenticated users can access/modify other users' resources by iterating sequential IDs in API requests. | **High** | 1. Implement object-level permissions.<br>2. Verify resource ownership before processing requests. |
+| **T-006** | Denial of Service | **CWE-400** | I18n (*.po) | **Resource Exhaustion via Translation:** Malformed locale inputs cause recursive lookups or memory exhaustion during template rendering. | **Medium** | 1. Whitelist allowed language codes.<br>2. Ensure translation files are read-only and integrity checked. |
+| **T-007** | Tampering | **CWE-494** | REQUIRE.JS | **Dependency Supply Chain Attack:** External dependencies loaded via Require.js are compromised at the source/CDN, executing code in the browser. | **Medium** | 1. Implement Subresource Integrity (SRI).<br>2. Host critical dependencies locally. |
+| **T-008** | Info Disclosure | **CWE-319** | Primary Database | **Cleartext Database Traffic:** Communication between Backend Model and Database occurs over unencrypted TCP/IP, allowing network sniffing. | **High** | 1. Enforce TLS/SSL for database connections.<br>2. Implement strict network segmentation (VLANs). |
 
 ---
 
 ## 4. Architectural Weaknesses
 
-1.  **W-001: Use of Deprecated Framework (Django Piston)**
-    *   **Description:** The API relies on Piston, which is unmaintained and lacks modern security controls.
-    *   **Impact:** High exposure to unpatched vulnerabilities (RCE) and lack of standard security features (OAuth2, throttling).
+1.  **Use of Deprecated Framework (Django Piston)**
+    *   **Description:** The architecture relies on an unmaintained framework (Piston) known for insecure defaults regarding serialization.
+    *   **Impact:** Extremely high risk of Remote Code Execution (RCE) and lack of security patches.
 
-2.  **W-002: Implicit Trust in Client-Side Logic (Backbone.js)**
-    *   **Description:** "Thick Client" architecture where validation may be relied upon in the frontend.
-    *   **Impact:** Business logic bypass (e.g., pricing manipulation) if the backend does not re-validate all inputs.
+2.  **Lack of CSRF Protection for API**
+    *   **Description:** Backbone.js interactions with Django often require manual configuration to handle CSRF tokens, which is frequently disabled for convenience in legacy apps.
+    *   **Impact:** Attackers can force authenticated users to perform state-changing actions (e.g., account updates) without consent.
 
-3.  **W-003: Lack of Explicit API Gateway / WAF**
-    *   **Description:** Direct exposure of the REST API via Nginx without specialized filtering.
-    *   **Impact:** Susceptibility to automated bots, scraping, and DoS attacks.
+3.  **Unencrypted Internal Traffic**
+    *   **Description:** Critical data flows (Database → Model) are using unencrypted protocols.
+    *   **Impact:** Compromise of a single internal node allows passive capture of all database credentials and user data.
 
-4.  **W-004: Unspecified Data Encryption**
-    *   **Description:** No explicit mention of TLS/SSL for internal or external flows.
-    *   **Impact:** Critical data exposure (credentials, PII) during transit.
-
-5.  **W-005: Potential Split-Brain Identity Management**
-    *   **Description:** Utilization of two separate databases connected to different upstream components.
-    *   **Impact:** Authorization bypasses caused by state desynchronization between DB1 and DB2.
+4.  **Implicit Trust in Frontend Validation**
+    *   **Description:** Heavy logic in Frontend Models suggests reliance on client-side validation, with the backend potentially assuming incoming data is clean.
+    *   **Impact:** Bypass of business logic and integrity checks by sending raw API requests.
 
 ---
 
 ## 5. CVE Discovery
 
-*Analysis performed based on identified components: Django, PostgreSQL, and Nginx.*
+*Note: While the input list of CVEs was empty, Threat T-001 explicitly referenced a specific CVE associated with the identified technology (Django Piston). It is included here for accuracy.*
 
-### 5.1 Django Framework
-*   **CVE-2024-42005 (CVSS 7.3):** SQL Injection via `QuerySet.values()` with JSONField. **High Relevance.**
-*   **CVE-2025-57833 (CVSS 7.1):** SQL Injection via `FilteredRelation`. **High Relevance.**
-*   **CVE-2021-44420 (CVSS 7.3):** Access Control Bypass via trailing newlines. **High Relevance** for API routing.
-*   **CVE-2023-24580 (CVSS 7.5):** DoS via Multipart Request Parser (file uploads). **Medium Relevance.**
-*   **CVE-2024-41990 (CVSS 7.5):** DoS via `urlize` template filter. **Medium Relevance.**
-
-### 5.2 PostgreSQL
-*   **CVE-2023-5869 (CVSS 8.8):** RCE via integer overflow in array modification. **High Relevance** (Authenticated).
-*   **CVE-2021-32027 (CVSS 8.8):** Buffer overflow allowing arbitrary write. **Medium Relevance.**
-
-### 5.3 Nginx
-*   **CVE-2021-23017 (CVSS 7.7):** 1-byte memory overwrite in DNS resolver. **Medium Relevance** (if upstream DNS is used).
-*   **CVE-2022-41741 (CVSS 7.0):** Memory corruption in MP4 module. **Low Relevance** (unless streaming media).
+| CVE ID | Component | CVSS | Summary | Preconditions | Relevance | Why it applies |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **CVE-2011-4103** | Django Piston | 9.8 (Est) | Django Piston allows remote attackers to execute arbitrary code via a crafted `Content-Type` header (e.g., YAML or Pickle) that triggers insecure deserialization. | Piston installed with default configuration allowing non-JSON serializers. | **Critical** | The architecture explicitly names "Django + Piston App". This is the definitive vulnerability for this component. |
 
 ---
 
@@ -120,88 +119,96 @@ Based on the provided architecture definition and component analysis.
 
 | Threat ID | CVE | Relationship |
 | :--- | :--- | :--- |
-| **T-001 (RCE)** | *N/A* | While T-001 is Piston-specific, unpatched **Django CVE-2024-42005** amplifies the RCE risk if Piston uses vulnerable ORM methods. |
-| **T-003 (Injection)** | **CVE-2024-42005** | **Enables:** Mass assignment combined with SQLi in JSONFields makes DB exploitation trivial. |
-| **T-008 (Admin)** | **CVE-2021-44420** | **Enables:** Attacker can bypass Nginx/Django URL restrictions to access Admin/Debug views. |
-| **T-006 (DoS)** | **CVE-2023-24580** | **Related Weakness:** Both target resource exhaustion in the API handling layer. |
-| **T-010 (DB access)**| **CVE-2023-5869** | **Amplifies:** If an attacker sniffs credentials (T-010), they can use this CVE to gain RCE on the DB server. |
+| **T-001** | **CVE-2011-4103** | **Direct:** The threat describes the exact exploitation mechanism of this CVE. |
 
 ---
 
 ## 7. Attack Path Simulations
 
-### AP-01: Legacy API Deserialization to RCE
-*   **Step 1:** Attacker maps API via exposed I18n files (**T-005**).
-*   **Step 2:** Attacker sends `application/x-yaml` payload to Piston endpoint (**T-001**).
-*   **Step 3:** Piston deserializes payload, executing Python code on **Common Server/API Container**.
-*   **Step 4:** Attacker reads `settings.py`, extracts DB credentials, and pivots to **Database 1**.
-*   **Impact:** Full System Compromise. **Likelihood:** High.
+### AP-01: Full Backend Compromise via Piston Deserialization RCE
+*   **Impact:** Critical (Full System Control)
+*   **Likelihood:** Medium (Depends on network exposure of API)
+*   **Chain:**
+    1.  **Reconnaissance:** Attacker discovers `REST API` and identifies "django-piston" headers or behavior.
+    2.  **Exploit Delivery:** Attacker sends a POST request with `Content-Type: application/x-yaml` containing a python payload (Threat **T-001** / **CVE-2011-4103**).
+    3.  **Execution:** The API deserializes the payload, executing shellcode.
+    4.  **Pivot:** Attacker gains a shell, reads `settings.py` to find DB credentials.
+    5.  **Exfiltration:** Attacker connects to `Primary Database` and dumps all tables.
 
-### AP-02: ACL Bypass to Database Takeover
-*   **Step 1:** Attacker requests restricted internal URL with a trailing newline (**CVE-2021-44420**) bypassing upstream Nginx/Django checks.
-*   **Step 2:** Endpoint logic uses `QuerySet.values()`. Attacker injects malicious JSON key (**CVE-2024-42005**) to inject SQL.
-*   **Step 3:** SQL injection modifies Postgres array values, triggering Integer Overflow (**CVE-2023-5869**).
-*   **Step 4:** Buffer overflow executes shellcode on **Database 1**.
-*   **Impact:** Total Database Infrastructure Compromise. **Likelihood:** Medium.
+### AP-02: Mass Data Theft via XSS and IDOR Chaining
+*   **Impact:** High (Data Breach)
+*   **Likelihood:** High (Common web vulnerabilities)
+*   **Chain:**
+    1.  **Injection:** Attacker inputs malicious script into a profile field rendered by `Frontend View` (Threat **T-002**).
+    2.  **Session Hijacking:** Admin views the profile; script executes and sends session token to attacker.
+    3.  **Authentication:** Attacker uses the token to authenticate against the `REST API`.
+    4.  **Enumeration:** Attacker iterates through User IDs (`/api/users/1`...`1000`) exploiting IDOR (Threat **T-005**).
+    5.  **Collection:** API returns excessive data (Threat **T-003**) for every user, which the attacker collects.
 
 ---
 
 ## 8. Component Security Profiles
 
-### 8.1 REST API (Django + Piston)
-*   **Risk:** **Critical**
-*   **Top Threats:** T-001 (Deserialization RCE), T-003 (Mass Assignment), CVE-2024-42005 (SQLi).
-*   **Mitigations:**
-    1.  **Immediate:** Disable YAML/Pickle serialization support in Piston config.
-    2.  **Short-term:** Patch Django to version > 5.0.8 / 4.2.15.
-    3.  **Long-term:** Replace Piston with Django REST Framework (DRF).
+### REST API (Django + Piston)
+*   **Role:** Main interface between frontend and data.
+*   **Risk Rating:** **Critical**
+*   **Top Threats:**
+    *   T-001: RCE via Insecure Deserialization.
+    *   T-005: Insecure Direct Object Reference (IDOR).
+    *   T-003: Excessive Data Exposure.
+*   **Prioritized Mitigations:**
+    1.  **Migrate to Django REST Framework (DRF) immediately.**
+    2.  Disable all serializers except JSON in Piston config.
+    3.  Implement strict object-level permissions.
 
-### 8.2 Database 1 & 2 (PostgreSQL)
-*   **Risk:** **High**
-*   **Top Threats:** CVE-2023-5869 (RCE), T-010 (Cleartext Traffic).
-*   **Mitigations:**
-    1.  Update PostgreSQL to latest stable version immediately.
-    2.  Enable SSL/TLS enforcement in `postgresql.conf`.
-    3.  Restrict network access (pg_hba.conf) to specific app container IPs.
+### Primary Database
+*   **Role:** Long-term storage of business data.
+*   **Risk Rating:** **Critical**
+*   **Top Threats:**
+    *   T-008: Cleartext traffic sniffing.
+    *   T-004: SQL Injection via Backend Model.
+*   **Prioritized Mitigations:**
+    1.  Enable and enforce TLS 1.2+ for all connections.
+    2.  Network isolation (ensure only the Backend Model can connect).
+    3.  Regular audits of database access logs.
 
-### 8.3 Frontend (Backbone.js)
-*   **Risk:** **Medium**
-*   **Top Threats:** T-004 (XSS), T-002 (CSRF), T-007 (Dependency Injection).
-*   **Mitigations:**
-    1.  Implement CSP headers at Nginx level.
-    2.  Audit Backbone views for `.html()` usage; replace with text binding.
-    3.  Add SRI hashes to all `<script>` tags.
+### Frontend View (Backbone.js)
+*   **Role:** Renders UI and user data.
+*   **Risk Rating:** **High**
+*   **Top Threats:**
+    *   T-002: Cross-Site Scripting (XSS).
+*   **Prioritized Mitigations:**
+    1.  Context-aware output encoding for all dynamic data.
+    2.  Implement a restrictive Content Security Policy (CSP).
 
 ---
 
 ## 9. NIST 800-53 Rev5 Control Mapping
 
-| Threat / Risk | NIST Control | Control Name | Explanation |
+| Threat ID | Threat Category | Relevant NIST Controls | Control Description & Mitigation Utility |
 | :--- | :--- | :--- | :--- |
-| **T-001 (Unsafe Deserialization)** | **SI-2** | Flaw Remediation | Patching Django and removing Piston eliminates the known RCE flaw. |
-| | **SA-22** | Unsupported System Components | Replacing the deprecated Piston framework with DRF removes unsupported software risk. |
-| **T-003 (Mass Assignment)** | **SI-10** | Information Input Validation | Defining strict input schemas prevents unauthorized field modification. |
-| **T-010 (Cleartext DB Traffic)** | **SC-8** | Transmission Confidentiality | Enforcing TLS ensures data traveling between App and DB is encrypted. |
-| **T-007 (Dependency Injection)** | **SA-11** | Developer Security Testing | Using SRI and checking dependencies ensures software integrity. |
-| **CVE-2021-44420 (ACL Bypass)** | **AC-6** | Least Privilege | Ensuring routing logic cannot be bypassed maintains least privilege enforcement. |
+| **T-001** | Tampering (RCE) | **SI-2 (Flaw Remediation)** | Identify and correct system flaws. Essential for patching/replacing the vulnerable Piston framework. |
+| **T-001** | Tampering (RCE) | **SC-18 (Mobile Code)** | Restrict execution of mobile code (deserialized objects). Prevents the execution of the pickle payload. |
+| **T-002** | Spoofing (XSS) | **SI-10 (Information Input Validation)** | Validate/sanitize inputs. Prevents script injection at the entry point. |
+| **T-005** | Elevation of Privilege (IDOR) | **AC-3 (Access Enforcement)** | Enforce approved authorizations for logical access. Ensures User A cannot access User B's record via ID manipulation. |
+| **T-008** | Info Disclosure (Sniffing) | **SC-8 (Transmission Confidentiality)** | Protect transmitted information. Mandates TLS for the database connection. |
 
 ---
 
 ## 10. Hardening Plan
 
 ### 10.1 Quick Wins (< 1 Day)
-*   **Patching:** Update Django to fix SQLi (CVE-2024-42005) and ACL bypass (CVE-2021-44420).
-*   **Configuration:** Set `DEBUG = False` in Django production settings.
-*   **Nginx Hardening:** Add rule to deny access to `*.po` and `*.mo` files.
-*   **Piston Config:** Explicitly disable non-JSON serializers in Piston settings.
+*   **Config Change:** explicitely disable `YAML` and `Pickle` serializers in Django Piston settings. Only allow `JSON`.
+*   **Network:** verify that the database port is not exposed to the public internet (ACL check).
+*   **Sanitization:** Enable Django's standard XSS protection headers (`X-XSS-Protection`, `X-Content-Type-Options`).
 
-### 10.2 Short-Term (1-4 Weeks)
-*   **Database Security:** Upgrade PostgreSQL to patch RCE vulnerabilities. Enforce SSL for all connections.
-*   **Frontend Security:** Implement Content Security Policy (CSP) and Subresource Integrity (SRI).
-*   **CSRF:** Verify `X-CSRFToken` implementation in Backbone `sync` method.
-*   **Logging:** Enable centralized logging for all state-changing API methods.
+### 10.2 Short-Term (1–4 Weeks)
+*   **Dependency Management:** Audit `REQUIRE.JS` dependencies and add Subresource Integrity (SRI) hashes to all script tags.
+*   **Encryption:** Configure the Database and Django Backend to require SSL/TLS for the database connection.
+*   **Authorization:** Audit all API endpoints and implement a permission check decorator ensuring `request.user.id == resource.owner_id`.
+*   **CSP:** Deploy a Content Security Policy header in report-only mode to identify necessary scripts, then enforce it.
 
-### 10.3 Long-Term (1-3 Months)
-*   **Architectural Refactor:** Retire Django Piston; rewrite API using Django REST Framework or Ninja.
-*   **Infrastructure:** Deploy a WAF (ModSecurity or AWS WAF) in front of the Common Server.
-*   **Identity:** Consolidate user stores from DB1 and DB2 into a single source of truth to prevent split-brain identity issues.
+### 10.3 Long-Term (1–3 Months)
+*   **Re-architecture:** **Replace Django Piston with Django REST Framework (DRF).** Piston is deprecated and insecure by design. This is the single most critical task.
+*   **Secret Management:** Move hardcoded secrets (if any) to a dedicated secrets manager and inject them as environment variables.
+*   **Frontend Modernization:** Consider migrating from Backbone.js to a modern framework (React/Vue) that handles escaping natively, reducing XSS surface area.

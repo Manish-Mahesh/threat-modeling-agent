@@ -5,11 +5,17 @@
 ![Gemini](https://img.shields.io/badge/Model-Gemini%203%20Pro-orange.svg)
 ![Status](https://img.shields.io/badge/Status-Active-success.svg)
 
+> **Problem:** Modern software architectures are complex, and manual threat modeling is slow, inconsistent, and often misses critical vulnerabilities buried in dependency chains.
+>
+> **Why Agents:** Static tools miss context. Humans miss scale. AI Agents can "reason" about architecture like a security architect but at machine speed.
+>
+> **Solution:** Sentinel. A multi-agent system that sees your diagram, understands your stack, finds specific CVEs, and simulates attacks to prove the risk.
+>
+> **Impact:** Shift security left. Catch design flaws before code is written. Reduce triage time from days to minutes.
 
 A fully automated, AI-driven pipeline that converts architecture diagrams or JSON into complete threat models, including STRIDE threats, CWE mapping, CVE discovery, attack-path simulations, and NIST 800-53 aligned mitigations.
 
 Powered by **Google Gemini 3 Pro** and **Gemini 3 Pro Vision**.
-
 
 ---
 
@@ -21,6 +27,18 @@ Powered by **Google Gemini 3 Pro** and **Gemini 3 Pro Vision**.
 *   **Context-Aware Filtering**: The **Threat Relevance Agent** uses LLM reasoning to filter out false positives, ensuring you only see risks that actually apply to your architecture.
 *   **Attack Path Simulation**: The **Attack Path Agent** "thinks" like a red teamer, chaining vulnerabilities together to demonstrate realistic kill chains.
 *   **Professional Reporting**: Generates a comprehensive, "Senior Security Architect" grade Markdown report (`threat_report.md`) with executive summaries, mitigation strategies, and compliance mappings (NIST 800-53).
+
+---
+
+## ⚡ Features Implemented (Google AI SDK & Vertex AI)
+
+This project leverages the full capabilities of the **Google AI SDK (ADK)** and **Vertex AI** to build a robust, production-grade agentic system:
+
+*   **Multi-Agent Orchestration**: Implements a sequential pipeline where specialized agents (Vision, Knowledge, Relevance) pass structured context (Pydantic models) to build a cumulative understanding of the system.
+*   **Tools & Function Calling**: Agents are equipped with custom tools (`search_vulnerabilities`, `process_architecture_diagram`) to ground their reasoning in real-world data from NVD and CISA.
+*   **Vertex AI Reasoning Engine**: The entire agent pipeline is deployed as a **Reasoning Engine** on Vertex AI, enabling it to run as a scalable, long-running cloud operation.
+*   **Context & Memory**: Agents maintain architectural context across steps, ensuring that a vulnerability found in Phase 2 is correctly referenced in the Attack Path simulation in Phase 3.
+*   **Observability & Reliability**: Uses `tenacity` for exponential backoff/retry logic and structured logging to ensure resilience against API rate limits and transient failures.
 
 ---
 
@@ -65,9 +83,9 @@ graph TD
 | :--- | :--- | :--- |
 | **Vision Agent** | `gemini-3-pro-image-preview` | Analyzes diagram images to extract structured architecture data (components, flows, boundaries). |
 | **Component Understanding Agent** | `gemini-3-pro-preview` | Infers specific products from generic labels (e.g., "Load Balancer" → "Nginx") using stack context. |
-| **Threat Knowledge Agent** | `gemini-3-pro-preview` | Performs deep STRIDE analysis to identify architectural weaknesses and theoretical threats. |
+| **Threat Knowledge Agent** | `gemini-3-pro-preview` | Performs deep STRIDE analysis. **New:** Includes a **Self-Correction Loop** where a secondary "Validator Agent" reviews findings to ensure CWE mappings are accurate. |
 | **CVE Discovery Agent** | *Tool-based* | Queries NVD and CISA APIs to find known vulnerabilities for the inferred technologies. |
-| **Threat Relevance Agent** | `gemini-3-pro-preview` | Acts as a filter, determining if a CVE or threat is actually relevant to the specific architecture context. |
+| **Threat Relevance Agent** | `gemini-3-pro-preview` | Filters false positives. **New:** Performs **Dynamic Risk Promotion**, automatically elevating critical CVEs (like RCEs) into top-level architectural threats. |
 | **Attack Path Agent** | `gemini-3-pro-preview` | Simulates multi-step attack scenarios (e.g., "External User" → "Web Shell" → "DB Dump"). |
 | **Report Synthesizer Agent** | `gemini-3-pro-preview` | Compiles all findings into a structured, narrative report with prioritized mitigations. |
 
