@@ -97,6 +97,70 @@ CWE_MITIGATIONS = {
         "config": ["Set limits on memory, CPU, and file descriptors per process."],
         "notes": ["Denial of Service via Resource Exhaustion."],
         "nist": ["SC-5"]
+    },
+
+    # Cryptographic Issues
+    "CWE-319": {
+        "primary_fix": "Enforce encryption in transit (TLS/SSL).",
+        "config": ["Disable HTTP and Telnet; enforce HTTPS and SSH.", "Use strong cipher suites."],
+        "monitoring": ["Monitor for unencrypted traffic on sensitive ports."],
+        "nist": ["SC-8", "SC-13"]
+    },
+    "CWE-327": {
+        "primary_fix": "Replace broken or risky cryptographic algorithms.",
+        "config": ["Disable support for MD5, SHA1, RC4, and DES."],
+        "notes": ["Use AES-256, RSA-2048+, or SHA-256+."],
+        "nist": ["SC-13"]
+    },
+    "CWE-798": {
+        "primary_fix": "Remove hardcoded credentials from code and config files.",
+        "config": ["Use a Secrets Manager (Vault, AWS Secrets Manager, etc.)."],
+        "monitoring": ["Scan codebase for high-entropy strings."],
+        "nist": ["IA-5", "SC-28"]
+    },
+
+    # Server-Side Request Forgery (SSRF)
+    "CWE-918": {
+        "primary_fix": "Validate and sanitize all user-supplied URLs.",
+        "config": ["Implement an allowlist of permitted domains/IPs.", "Disable HTTP redirects in the HTTP client."],
+        "access": ["Block outbound traffic to internal metadata services (e.g., 169.254.169.254)."],
+        "nist": ["AC-4", "SI-10"]
+    },
+
+    # XML External Entity (XXE)
+    "CWE-611": {
+        "primary_fix": "Disable DTD processing in XML parsers.",
+        "config": ["Disallow DOCTYPE declarations.", "Disable external entity resolution."],
+        "notes": ["If possible, switch to JSON or other simpler formats."],
+        "nist": ["SI-10"]
+    },
+
+    # Insecure Deserialization
+    "CWE-502": {
+        "primary_fix": "Do not deserialize untrusted data.",
+        "config": ["Use safe serialization formats like JSON instead of Pickle/Java Serialization."],
+        "notes": ["If required, sign the data with a digital signature before deserialization."],
+        "nist": ["SI-10"]
+    },
+
+    # Path Traversal
+    "CWE-22": {
+        "primary_fix": "Sanitize file path inputs to remove directory traversal characters (../).",
+        "config": ["Run the service in a chroot jail or restricted container."],
+        "notes": ["Use indirect object references (IDs) mapped to files instead of direct paths."],
+        "nist": ["SI-10", "AC-6"]
+    },
+
+    # Missing Authentication/Authorization
+    "CWE-306": {
+        "primary_fix": "Require authentication for all critical functions.",
+        "access": ["Implement a 'deny by default' access policy."],
+        "nist": ["AC-3", "IA-2"]
+    },
+    "CWE-862": {
+        "primary_fix": "Perform authorization checks for every actionable request.",
+        "access": ["Verify that the authenticated user has permission to perform the requested action."],
+        "nist": ["AC-3"]
     }
 }
 

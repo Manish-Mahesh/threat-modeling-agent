@@ -17,6 +17,9 @@ class CVERelevanceAssessment(BaseModel):
     prerequisites: str = None
     exploitability: str = None
     likelihood: str = None
+    # New fields for AI-driven mitigation enrichment
+    mitigation_suggestion: str = None
+    configuration_fixes: List[str] = []
 
 class ThreatRelevanceOutput(BaseModel):
     assessments: List[CVERelevanceAssessment]
@@ -39,9 +42,13 @@ RULES:
    - `likelihood`: e.g., "High - Default config exposes this", "Low - Requires rare module".
    - `justification`: A short explanation of why this CVE matters to THIS architecture.
 
-3. **Filtering:** discard any CVEs deemed "Irrelevant".
+3. **Mitigation Enrichment:**
+   - Provide a `mitigation_suggestion`: A specific, actionable fix for this CVE (e.g., "Upgrade to version 1.2.3", "Disable X module").
+   - Provide `configuration_fixes`: A list of specific config changes (e.g., "Set 'debug=False' in settings.py").
 
-4. **Output:** Return a JSON object with a list of `assessments`.
+4. **Filtering:** discard any CVEs deemed "Irrelevant".
+
+5. **Output:** Return a JSON object with a list of `assessments`.
 """
 
 class SimpleAgent:
@@ -123,6 +130,21 @@ class ThreatRelevanceAgent:
                     original_cve.exploitability = assessment.exploitability
                     original_cve.likelihood = assessment.likelihood
                     
+                    # AI-Driven Mitigation Enrichment
+                    if assessment.mitigation_suggestion:
+                        if not original_cve.mitigation:
+                            # Should not happen as CVEDiscoveryAgent creates it, but safe fallback
+                            from tools.models import MitigationStrategy
+                            original_cve.mitigation = MitigationStrategy(
+                                primary_fix=assessment.mitigation_suggestion,
+                                configuration_changes=assessment.configuration_fixes
+                            )
+                        else:
+                            # Append AI suggestions to existing static mitigation
+                            original_cve.mitigation.additional_notes.append(f"AI Suggestion: {assessment.mitigation_suggestion}")
+                            if assessment.configuration_fixes:
+                                original_cve.mitigation.configuration_changes.extend(assessment.configuration_fixes)
+
                     relevant_cves.append({
                         "cve": original_cve,
                         "score": 1.0, # Placeholder

@@ -211,6 +211,40 @@ The generated **`threat_report.md`** is a comprehensive security document contai
 
 ---
 
+## 🧠 Hybrid Mitigation Engine
+
+Sentinel uses a **Hybrid Mitigation Strategy** to ensure recommendations are both specific and reliable:
+
+1.  **AI-Generated Mitigations (STRIDE):**
+    For architectural flaws (e.g., "Missing Network Segmentation"), the **Threat Knowledge Agent** uses its LLM reasoning to generate custom, context-aware mitigations tailored to your specific stack.
+
+2.  **Knowledge-Based Mitigations (CVEs/CWEs):**
+    For known vulnerabilities and specific weakness types, the system consults a curated **Mitigation Knowledge Base** (`tools/mitigation_engine.py`).
+    *   **Generic by Design:** Instead of relying on hit-or-miss AI suggestions for critical bugs, it maps standard **CWE IDs** (e.g., `CWE-89 SQL Injection`, `CWE-918 SSRF`) to industry-standard fixes (NIST 800-53 controls, secure coding practices).
+    *   **Fallback Mechanism:** If a specific CWE is not in the knowledge base, the engine falls back to a robust default strategy based on the **CVSS Vector** (e.g., "If Network Vector -> Enforce Firewall", "If Privileged -> Review IAM").
+
+This ensures that even if a specific CVE is new or obscure, the system provides solid, standards-aligned defense advice based on the *type* of vulnerability.
+
+---
+
+## 🛡️ Trust & Accuracy (Anti-Hallucination)
+
+A common issue with LLM-based security tools is "hallucination" (inventing non-existent vulnerabilities). Sentinel combats this with a strict **Grounding Layer**:
+
+1.  **Real-World CVEs Only:**
+    *   The **CVE Discovery Agent** does *not* use an LLM to guess vulnerabilities.
+    *   It queries the **National Vulnerability Database (NVD)** and **CISA KEV** APIs directly using the inferred technology stack.
+    *   If the NVD returns zero results, the report will state "No known CVEs found" rather than inventing one.
+
+2.  **Relevance Filtering:**
+    *   Raw CVEs are passed to the **Threat Relevance Agent**, which uses the LLM *only* to filter out irrelevant results (e.g., "This CVE is for Windows, but the architecture is Linux").
+    *   It cannot add new CVEs, only remove or score existing ones.
+
+3.  **Strict Synthesis:**
+    *   The final **Report Synthesizer** is explicitly instructed via system prompts to **never invent CVEs** and to only report those validated by the upstream tools.
+
+---
+
 ## 🧪 Sample Execution & Verification
 
 A sample architecture diagram (`data/test_arch4.png`) and a pre-generated report (`threat_report.md`) are included in the repository for verification purposes.
@@ -225,7 +259,7 @@ python main.py --image data/test_arch4.png
 
 ---
 
-## ⚙️ Robustness & Optimizations
+## ⚙️ Optimizations
 
 To ensure production-grade reliability and performance, the system includes several advanced engineering features:
 
@@ -235,17 +269,6 @@ To ensure production-grade reliability and performance, the system includes seve
 *   **Input Sanitization**: Automatically cleans and validates search terms before querying external APIs (NVD/CISA) to prevent malformed requests.
 *   **Structured Output Validation**: All AI agents use **Pydantic** models to enforce strict JSON schemas, ensuring that downstream components always receive valid, well-typed data.
 *   **Caching**: Implements `lru_cache` for static threat intelligence feeds (like CISA KEV) to minimize redundant network traffic.
-
----
-
-## 🎯 Accuracy & Hallucination Prevention
-
-To ensure the threat model is grounded in reality and free from AI hallucinations, the system employs several strict verification layers:
-
-*   **No Generic CVE Lookups**: The system **never** queries the National Vulnerability Database (NVD) for generic terms like "Database", "Server", or "Cloud". It only searches for specific, inferred technologies (e.g., "Redis", "Nginx", "PostgreSQL") to prevent flooding the report with irrelevant vulnerabilities.
-*   **Confidence-Based Inference**: The **Component Understanding Agent** only assigns a specific technology to a component if it has high confidence (>60%) based on the surrounding architecture context. Otherwise, it remains a generic component with standard architectural threats but no specific CVEs.
-*   **Contextual Relevance Filtering**: Even if a CVE is found, the **Threat Relevance Agent** performs a secondary validation step. It analyzes the CVE description against the system architecture to discard false positives (e.g., ignoring a "Windows" vulnerability if the inferred environment is "Linux").
-*   **Strict Context Grounding**: The **Report Synthesizer** is explicitly instructed to generate the final report based *only* on the structured data provided by previous agents, strictly forbidding the invention of components or threats not identified in the analysis phase.
 
 ---
 

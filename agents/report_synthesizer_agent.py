@@ -263,8 +263,11 @@ class ReportSynthesizerAgent:
 
         TASK:
         Using the provided input data, generate the final Threat Model Report following the structure defined in your system instruction.
-        Ensure you incorporate all the identified threats, CVEs, and attack paths from the input data.
-        Refine the descriptions and mitigations to be professional and actionable.
+        
+        CRITICAL RULES:
+        1. Incorporate ALL identified threats, CVEs, and attack paths from the input data.
+        2. DO NOT hallucinate or invent new CVEs. Only use the CVEs listed in the 'cves' section of the input data.
+        3. Refine the descriptions and mitigations to be professional and actionable.
         """
 
         try:
