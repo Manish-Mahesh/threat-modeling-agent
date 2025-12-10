@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import Agent Factory Functions
-from agents.planner_agent import create_planner_agent
-from agents.assessment_agent import create_assessment_agent, run_assessment
+# (No longer using planner/assessment agents directly)
 
 # Import Custom Tool Functions
 from tools.diagram_processor import process_architecture_diagram

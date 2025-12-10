@@ -277,16 +277,13 @@ To ensure production-grade reliability and performance, the system includes seve
 ```text
 threat-modeling-agent/
 ├── agents/                     # AI Agent definitions
-│   ├── assessment_agent.py
 │   ├── attack_path_agent.py
 │   ├── component_understanding_agent.py
+│   ├── core.py                 # Pipeline orchestration
 │   ├── cve_discovery_agent.py
-│   ├── planner_agent.py
 │   ├── report_synthesizer_agent.py
 │   ├── threat_knowledge_agent.py
-│   └── threat_relevance_agent.py
-├── config/                     # Configuration files
-│   └── agent_config.yaml
+    └── threat_relevance_agent.py
 ├── data/                       # Test data and diagrams
 │   ├── test_arch.png
 │   └── test_arch_data.json
